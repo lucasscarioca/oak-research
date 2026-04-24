@@ -1,0 +1,367 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0b1020;
+  color: #e5edf9;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(65, 113, 255, 0.15), transparent 34%),
+    linear-gradient(180deg, #09111e 0%, #0b1020 48%, #0b1020 100%);
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 100%;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(8, 13, 25, 0.72);
+  backdrop-filter: blur(18px);
+}
+
+.brand-block {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding-bottom: 0.5rem;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #4f7cff, #7c5cff);
+  color: white;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: 0 12px 30px rgba(79, 124, 255, 0.35);
+}
+
+.brand-block h1,
+.workspace-header h2,
+.panel h3 {
+  margin: 0;
+}
+
+.brand-block p,
+.workspace-header p,
+.panel p,
+.user-card p,
+.notebook-card span,
+.tab-button small,
+.sidebar-link span:last-child,
+.subtle,
+.empty-state p,
+.placeholder-card p {
+  margin: 0;
+  color: #9fb0cd;
+}
+
+.sidebar-panel,
+.panel,
+.notebook-card,
+.placeholder-card {
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: 18px;
+}
+
+.sidebar-panel {
+  padding: 1rem;
+}
+
+.panel-label,
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: #7d91b5;
+}
+
+.notebook-card,
+.sidebar-link,
+.secondary-action,
+.primary-action,
+.tab-button {
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.notebook-card {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  margin-top: 0.65rem;
+  color: inherit;
+  text-align: left;
+}
+
+.notebook-card.active {
+  border-color: rgba(99, 102, 241, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.18);
+}
+
+.badge {
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(79, 124, 255, 0.16);
+  color: #c5d4ff;
+  font-size: 0.78rem;
+}
+
+.sidebar-links {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.sidebar-link {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 14px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sidebar-link:hover,
+.secondary-action:hover,
+.primary-action:hover,
+.tab-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.secondary-action,
+.primary-action {
+  padding: 0.8rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #edf2ff;
+}
+
+.primary-action {
+  background: linear-gradient(135deg, #4f7cff, #7c5cff);
+  box-shadow: 0 12px 24px rgba(79, 124, 255, 0.22);
+}
+
+.status-panel {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+.status-dot.healthy {
+  background: #22c55e;
+}
+
+.status-dot.degraded {
+  background: #f59e0b;
+}
+
+.status-dot.offline {
+  background: #ef4444;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tab-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.tab-button {
+  text-align: left;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.55);
+  color: #eef4ff;
+}
+
+.tab-button.active {
+  border-color: rgba(99, 102, 241, 0.6);
+  background: rgba(79, 124, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.14);
+}
+
+.tab-button span,
+.message-label,
+.placeholder-card strong {
+  display: block;
+  font-weight: 600;
+}
+
+.workspace-content {
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  padding: 1rem;
+  min-height: calc(100vh - 250px);
+}
+
+.split-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 1rem;
+}
+
+.conversation-area {
+  display: grid;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+.empty-state {
+  padding: 1.2rem;
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.message {
+  padding: 1rem 1.1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.message-user {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.message-assistant {
+  background: rgba(79, 124, 255, 0.09);
+  border-color: rgba(79, 124, 255, 0.18);
+}
+
+.composer {
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
+.composer textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.8);
+  color: #eef4ff;
+}
+
+.composer textarea::placeholder {
+  color: #7084a5;
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.empty-grid {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+
+.placeholder-card {
+  padding: 1.1rem;
+}
+
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .tab-strip {
+    grid-template-columns: 1fr;
+  }
+}
