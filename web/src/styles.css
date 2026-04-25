@@ -30,6 +30,7 @@ body {
 }
 
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -98,7 +99,8 @@ button {
 .sidebar-panel,
 .panel,
 .notebook-card,
-.placeholder-card {
+.placeholder-card,
+.auth-card {
   border: 1px solid rgba(148, 163, 184, 0.15);
   background: rgba(15, 23, 42, 0.8);
   border-radius: 18px;
@@ -220,6 +222,67 @@ button {
 
 .status-dot.offline {
   background: #ef4444;
+}
+
+.auth-screen {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  width: min(100%, 520px);
+  padding: 1.5rem;
+  display: grid;
+  gap: 1.25rem;
+  box-shadow: 0 24px 60px rgba(3, 7, 18, 0.5);
+}
+
+.auth-brand {
+  padding-bottom: 0;
+}
+
+.auth-copy h2 {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.auth-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 0.45rem;
+  color: #dbe7fb;
+}
+
+.auth-form span {
+  font-size: 0.92rem;
+  color: #9fb0cd;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(7, 10, 20, 0.85);
+  color: #eef4ff;
+}
+
+.auth-form input::placeholder {
+  color: #7084a5;
+}
+
+.form-error {
+  margin: 0;
+  color: #fca5a5;
+}
+
+.auth-submit {
+  width: 100%;
 }
 
 .workspace {

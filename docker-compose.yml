@@ -22,6 +22,8 @@ services:
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     command: ["uv", "run", "oakresearch", "migrate"]
     depends_on:
@@ -39,6 +41,8 @@ services:
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     command: >
       uv run uvicorn oakresearch.main:app
@@ -68,6 +72,8 @@ services:
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     command: >
       uv run uvicorn oakresearch.worker:app

@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+import base64
+import hashlib
+import hmac
+import secrets
 
 import asyncpg
 
@@ -16,6 +22,10 @@ DEFAULT_OWNER_PASSWORD_HASH = "unconfigured"
 DEFAULT_NOTEBOOK_NAME = "Default notebook"
 DEFAULT_PROVIDER_NAME = "gemini"
 DEFAULT_STORAGE_DIR = Path(settings.storage_path)
+DEFAULT_SESSION_COOKIE_NAME = "oakresearch_session"
+DEFAULT_SESSION_TTL = timedelta(days=30)
+PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
+PASSWORD_HASH_ITERATIONS = 200_000
 
 
 def split_sql_statements(sql: str) -> list[str]:
@@ -25,6 +35,45 @@ def split_sql_statements(sql: str) -> list[str]:
         if statement:
             statements.append(statement)
     return statements
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        PASSWORD_HASH_ITERATIONS,
+    )
+    return "{}${}${}${}".format(
+        PASSWORD_HASH_ALGORITHM,
+        PASSWORD_HASH_ITERATIONS,
+        base64.b64encode(salt).decode("ascii"),
+        base64.b64encode(digest).decode("ascii"),
+    )
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    try:
+        algorithm, iterations_text, salt_text, digest_text = password_hash.split("$", maxsplit=3)
+    except ValueError:
+        return False
+    if algorithm != PASSWORD_HASH_ALGORITHM:
+        return False
+
+    try:
+        iterations = int(iterations_text)
+        salt = base64.b64decode(salt_text.encode("ascii"))
+        expected_digest = base64.b64decode(digest_text.encode("ascii"))
+    except (ValueError, UnicodeError):
+        return False
+
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(candidate, expected_digest)
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 async def create_pool() -> asyncpg.Pool:
@@ -82,6 +131,7 @@ async def bootstrap_instance(conn: asyncpg.Connection) -> dict[str, Any]:
             id integer PRIMARY KEY,
             owner_user_id bigint NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
             default_notebook_id bigint NOT NULL REFERENCES notebooks(id) ON DELETE RESTRICT,
+            onboarding_complete boolean NOT NULL DEFAULT false,
             bootstrap_version integer NOT NULL DEFAULT 1,
             created_at timestamptz NOT NULL DEFAULT now(),
             updated_at timestamptz NOT NULL DEFAULT now(),
@@ -152,11 +202,12 @@ async def bootstrap_instance(conn: asyncpg.Connection) -> dict[str, Any]:
 
     await conn.execute(
         """
-        INSERT INTO app_instance (id, owner_user_id, default_notebook_id, bootstrap_version)
-        VALUES (1, $1, $2, 1)
+        INSERT INTO app_instance (id, owner_user_id, default_notebook_id, onboarding_complete, bootstrap_version)
+        VALUES (1, $1, $2, FALSE, 1)
         ON CONFLICT (id)
         DO UPDATE SET owner_user_id = EXCLUDED.owner_user_id,
                       default_notebook_id = EXCLUDED.default_notebook_id,
+                      onboarding_complete = COALESCE(app_instance.onboarding_complete, FALSE),
                       bootstrap_version = EXCLUDED.bootstrap_version,
                       updated_at = now()
         """,
@@ -165,6 +216,71 @@ async def bootstrap_instance(conn: asyncpg.Connection) -> dict[str, Any]:
     )
 
     return await get_bootstrap_state(conn)
+
+
+async def create_session(
+    conn: asyncpg.Connection,
+    user_id: int,
+    *,
+    user_agent: str | None = None,
+    ip_address: str | None = None,
+) -> str:
+    token = secrets.token_urlsafe(32)
+    await conn.execute(
+        """
+        INSERT INTO auth_sessions (user_id, session_token_hash, expires_at, user_agent, ip_address)
+        VALUES ($1, $2, now() + $3::interval, $4, $5)
+        """,
+        user_id,
+        token_hash(token),
+        DEFAULT_SESSION_TTL,
+        user_agent,
+        ip_address,
+    )
+    return token
+
+
+async def revoke_session(conn: asyncpg.Connection, token: str) -> None:
+    await conn.execute(
+        """
+        UPDATE auth_sessions
+        SET revoked_at = now()
+        WHERE session_token_hash = $1 AND revoked_at IS NULL
+        """,
+        token_hash(token),
+    )
+
+
+async def get_authenticated_user(
+    conn: asyncpg.Connection, token: str | None
+) -> dict[str, Any] | None:
+    if not token:
+        return None
+
+    row = await conn.fetchrow(
+        """
+        SELECT u.id, u.username, u.created_at
+        FROM auth_sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.session_token_hash = $1
+          AND s.revoked_at IS NULL
+          AND s.expires_at > now()
+        LIMIT 1
+        """,
+        token_hash(token),
+    )
+    if row is None:
+        return None
+
+    await conn.execute(
+        """
+        UPDATE auth_sessions
+        SET last_seen_at = now()
+        WHERE session_token_hash = $1
+        """,
+        token_hash(token),
+    )
+    return dict(row)
 
 
 async def initialize_database(conn: asyncpg.Connection) -> dict[str, Any]:
@@ -202,7 +318,75 @@ async def get_bootstrap_state(conn: asyncpg.Connection) -> dict[str, Any]:
         "default_notebook": dict(notebook) if notebook is not None else None,
         "provider_config": dict(provider_config) if provider_config is not None else None,
         "instance": dict(instance) if instance is not None else None,
+        "onboarding_complete": bool(instance["onboarding_complete"]) if instance is not None else False,
     }
+
+
+async def complete_onboarding(
+    conn: asyncpg.Connection,
+    *,
+    username: str,
+    password: str,
+) -> dict[str, Any]:
+    async with conn.transaction():
+        owner = await conn.fetchrow(
+            "SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT 1"
+        )
+        if owner is None:
+            owner = await conn.fetchrow(
+                """
+                INSERT INTO users (username, password_hash)
+                VALUES ($1, $2)
+                RETURNING *
+                """,
+                username,
+                hash_password(password),
+            )
+        else:
+            owner = await conn.fetchrow(
+                """
+                UPDATE users
+                SET username = $1,
+                    password_hash = $2
+                WHERE id = $3
+                RETURNING *
+                """,
+                username,
+                hash_password(password),
+                owner["id"],
+            )
+        assert owner is not None
+
+        instance = await conn.fetchrow(
+            """
+            UPDATE app_instance
+            SET owner_user_id = $1,
+                onboarding_complete = TRUE,
+                updated_at = now()
+            WHERE id = 1
+            RETURNING *
+            """,
+            owner["id"],
+        )
+        assert instance is not None
+        return {"owner": dict(owner), "instance": dict(instance)}
+
+
+async def authenticate_user(
+    conn: asyncpg.Connection,
+    *,
+    username: str,
+    password: str,
+) -> dict[str, Any] | None:
+    user = await conn.fetchrow(
+        "SELECT * FROM users WHERE username = $1 LIMIT 1",
+        username,
+    )
+    if user is None:
+        return None
+    if not verify_password(password, user["password_hash"]):
+        return None
+    return dict(user)
 
 
 async def list_sources(conn: asyncpg.Connection) -> list[dict[str, Any]]:

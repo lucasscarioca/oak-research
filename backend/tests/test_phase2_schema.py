@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import asyncpg
@@ -17,18 +18,23 @@ class Phase2SchemaTest(unittest.IsolatedAsyncioTestCase):
             "TEST_DATABASE_URL",
             "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
         )
+        self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=2)
         async with self.pool.acquire() as conn:
-            await conn.execute("DROP SCHEMA IF EXISTS public CASCADE")
-            await conn.execute("CREATE SCHEMA public")
+            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
+            await conn.execute(f'SET search_path TO {self.schema_name}')
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
     async def asyncTearDown(self) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
         await self.pool.close()
 
     async def test_bootstrap_creates_owner_and_default_notebook(self) -> None:
         async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
             state = await get_bootstrap_state(conn)
         self.assertTrue(state["bootstrap_complete"])
         self.assertIsNotNone(state["owner"])
@@ -36,6 +42,7 @@ class Phase2SchemaTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_sources_and_runs_persist(self) -> None:
         async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
             notebook_id = await conn.fetchval("SELECT id FROM notebooks WHERE is_default = TRUE LIMIT 1")
             source_id = await conn.fetchval(
                 """
@@ -71,6 +78,7 @@ class Phase2SchemaTest(unittest.IsolatedAsyncioTestCase):
             )
 
         async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
             source_count = await conn.fetchval("SELECT count(*) FROM sources")
             run_count = await conn.fetchval("SELECT count(*) FROM runs")
             answer_count = await conn.fetchval("SELECT count(*) FROM answers")
@@ -83,6 +91,7 @@ class Phase2SchemaTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_bootstrap_is_idempotent(self) -> None:
         async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
             first = await bootstrap_instance(conn)
             second = await bootstrap_instance(conn)
         self.assertEqual(first["owner"]["id"], second["owner"]["id"])

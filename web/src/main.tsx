@@ -4,6 +4,7 @@ import './styles.css';
 
 type TabId = 'chat' | 'sources' | 'runs';
 type RuntimeStatus = 'checking' | 'healthy' | 'degraded' | 'offline';
+type AuthMode = 'loading' | 'onboarding' | 'login' | 'authenticated';
 
 type HealthResponse = {
   status: 'ok' | 'degraded';
@@ -15,6 +16,26 @@ type HealthResponse = {
 
 type WorkerHealthResponse = {
   status: 'ok' | 'degraded';
+};
+
+type AuthStatusResponse = {
+  onboarding_required: boolean;
+  authenticated: boolean;
+  user: {
+    id: number;
+    username: string;
+  } | null;
+};
+
+type AuthUser = {
+  id: number;
+  username: string;
+};
+
+type AuthFormState = {
+  username: string;
+  password: string;
+  confirmPassword: string;
 };
 
 type StatusChipProps = {
@@ -44,7 +65,98 @@ function StatusChip({ label, status }: StatusChipProps) {
   );
 }
 
-function Shell() {
+function AuthScreen({
+  mode,
+  statusLabel,
+  onSubmit,
+  busy,
+  error,
+}: {
+  mode: AuthMode;
+  statusLabel: string;
+  onSubmit: (form: AuthFormState) => Promise<void>;
+  busy: boolean;
+  error: string | null;
+}) {
+  const isOnboarding = mode === 'onboarding';
+  const [form, setForm] = useState<AuthFormState>({
+    username: '',
+    password: '',
+    confirmPassword: '',
+  });
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="brand-block auth-brand">
+          <div className="brand-mark">OR</div>
+          <div>
+            <h1>OakResearch</h1>
+            <p>Self-hosted research notebook</p>
+          </div>
+        </div>
+
+        <div className="auth-copy">
+          <p className="eyebrow">{statusLabel}</p>
+          <h2>{isOnboarding ? 'Create the owner account' : 'Sign in to continue'}</h2>
+          <p>
+            {isOnboarding
+              ? 'This instance is locked to a single local owner account.'
+              : 'Use the owner account created during onboarding to access notebooks and runs.'}
+          </p>
+        </div>
+
+        <form
+          className="auth-form"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            await onSubmit(form);
+          }}
+        >
+          <label>
+            <span>Username</span>
+            <input
+              value={form.username}
+              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+              autoComplete={isOnboarding ? 'new-password' : 'current-password'}
+              required
+            />
+          </label>
+          {isOnboarding && (
+            <label>
+              <span>Confirm password</span>
+              <input
+                type="password"
+                value={form.confirmPassword}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, confirmPassword: event.target.value }))
+                }
+                autoComplete="new-password"
+                required
+              />
+            </label>
+          )}
+          {error && <p className="form-error">{error}</p>}
+          <button className="primary-action auth-submit" type="submit" disabled={busy}>
+            {busy ? 'Working…' : isOnboarding ? 'Create owner account' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<void> }) {
   const [activeTab, setActiveTab] = useState<TabId>('chat');
   const [apiStatus, setApiStatus] = useState<RuntimeStatus>('checking');
   const [workerStatus, setWorkerStatus] = useState<RuntimeStatus>('checking');
@@ -58,7 +170,7 @@ function Shell() {
 
     async function loadStatus() {
       try {
-        const apiResponse = await fetch(`${apiBaseUrl}/health`);
+        const apiResponse = await fetch(`${apiBaseUrl}/health`, { credentials: 'include' });
         const apiData = (await apiResponse.json()) as HealthResponse;
         if (!cancelled) {
           setApiStatus(apiData.status === 'ok' ? 'healthy' : 'degraded');
@@ -72,7 +184,7 @@ function Shell() {
       }
 
       try {
-        const workerResponse = await fetch(`${workerBaseUrl}/health`);
+        const workerResponse = await fetch(`${workerBaseUrl}/health`, { credentials: 'include' });
         const workerData = (await workerResponse.json()) as WorkerHealthResponse;
         if (!cancelled) {
           setWorkerStatus(workerData.status === 'ok' ? 'healthy' : 'degraded');
@@ -139,8 +251,11 @@ function Shell() {
 
         <div className="sidebar-panel user-card">
           <div className="panel-label">Account</div>
-          <strong>Owner</strong>
-          <p>Local auth, single-user v1</p>
+          <strong>{user.username}</strong>
+          <p>Local owner account</p>
+          <button type="button" className="secondary-action" onClick={() => void onLogout()}>
+            Log out
+          </button>
         </div>
       </aside>
 
@@ -237,8 +352,129 @@ function Shell() {
   );
 }
 
+function App() {
+  const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
+  const [mode, setMode] = useState<AuthMode>('loading');
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAuth() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/auth/status`, { credentials: 'include' });
+        const data = (await response.json()) as AuthStatusResponse;
+        if (cancelled) {
+          return;
+        }
+
+        setUser(data.user);
+        if (data.authenticated && data.user) {
+          setMode('authenticated');
+        } else if (data.onboarding_required) {
+          setMode('onboarding');
+        } else {
+          setMode('login');
+        }
+      } catch {
+        if (!cancelled) {
+          setMode('login');
+        }
+      }
+    }
+
+    loadAuth();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
+
+  async function submitAuth(path: '/auth/onboarding' | '/auth/login', form: AuthFormState) {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}${path}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: form.username,
+          password: form.password,
+          ...(path === '/auth/onboarding' ? { confirm_password: form.confirmPassword } : {}),
+        }),
+      });
+      const data = (await response.json()) as { user?: AuthUser; detail?: string };
+      if (!response.ok) {
+        throw new Error(data.detail || 'Authentication failed');
+      }
+      if (data.user) {
+        setUser(data.user);
+      }
+      setMode('authenticated');
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Authentication failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    setBusy(true);
+    setError(null);
+    try {
+      await fetch(`${apiBaseUrl}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      setUser(null);
+      setMode('login');
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Logout failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mode === 'loading') {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="brand-block auth-brand">
+            <div className="brand-mark">OR</div>
+            <div>
+              <h1>OakResearch</h1>
+              <p>Self-hosted research notebook</p>
+            </div>
+          </div>
+          <div className="auth-copy">
+            <p className="eyebrow">Loading</p>
+            <h2>Checking owner access</h2>
+            <p>Verifying whether this instance needs onboarding or an owner sign-in.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode !== 'authenticated' || user === null) {
+    return (
+      <AuthScreen
+        mode={mode}
+        statusLabel={mode === 'onboarding' ? 'First run setup' : 'Owner access'}
+        onSubmit={async (form) => submitAuth(mode === 'onboarding' ? '/auth/onboarding' : '/auth/login', form)}
+        busy={busy}
+        error={error}
+      />
+    );
+  }
+
+  return <Shell user={user} onLogout={logout} />;
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Shell />
+    <App />
   </StrictMode>,
 );

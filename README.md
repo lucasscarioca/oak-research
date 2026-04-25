@@ -2,7 +2,7 @@
 
 Minimal self-hostable deep research notebook starter.
 
-> WIP: core app scaffold is in place; auth, ingestion, and research workflows are next.
+> WIP: core app scaffold and owner auth are in place; ingestion, answering, and diagnostics are next.
 
 ## Run
 ```bash
