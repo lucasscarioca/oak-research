@@ -13,11 +13,29 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
+      SOURCE_STORAGE_PATH: /data/oakresearch
+      APP_SECRET: ${APP_SECRET:-change-me-in-production}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    command: ["uv", "run", "oakresearch", "migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - source-data:/data/oakresearch
+
   api:
     build:
       context: ./backend
     environment:
       DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
+      SOURCE_STORAGE_PATH: /data/oakresearch
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -29,8 +47,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
+    volumes:
+      - source-data:/data/oakresearch
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 5s
@@ -42,6 +64,7 @@ services:
       context: ./backend
     environment:
       DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
+      SOURCE_STORAGE_PATH: /data/oakresearch
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -53,8 +76,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "8001:8001"
+    volumes:
+      - source-data:/data/oakresearch
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
       interval: 5s
@@ -82,3 +109,4 @@ services:
 
 volumes:
   db-data:
+  source-data:

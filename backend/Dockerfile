@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md ./
+COPY migrations ./migrations
 COPY src ./src
 
 RUN uv sync --frozen --no-dev

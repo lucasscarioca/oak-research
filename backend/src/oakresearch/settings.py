@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_secret: str = Field(default="change-me-in-production", alias="APP_SECRET")
     session_secret: str = Field(default="change-me-in-production", alias="SESSION_SECRET")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    storage_path: str = Field(default="/data/oakresearch", alias="SOURCE_STORAGE_PATH")
 
 
 @lru_cache(maxsize=1)
