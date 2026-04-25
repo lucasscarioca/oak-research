@@ -70,6 +70,50 @@ type SourceItem = {
   status: string;
 };
 
+type RunCitation = {
+  id: number;
+  source_id: number;
+  chunk_ref: string | null;
+  citation_text: string;
+  citation_index: number;
+  created_at?: string;
+};
+
+type RunAnswer = {
+  id: number;
+  answer_text: string;
+  trace_summary: string | null;
+  model: string | null;
+  citations: RunCitation[];
+};
+
+type RunRecord = {
+  id: number;
+  notebook_id: number;
+  question: string;
+  status: string;
+  step_label: string | null;
+  blocked_reason: string | null;
+  error_message: string | null;
+  rerun_of_run_id: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  answer?: RunAnswer | null;
+};
+
+type SourceDetail = SourceItem & {
+  chunks: Array<{
+    id: number;
+    source_id: number;
+    job_id: number;
+    chunk_index: number;
+    chunk_text: string;
+    chunk_hash: string;
+    created_at: string;
+  }>;
+};
+
 type AuthFormState = {
   username: string;
   password: string;
@@ -185,6 +229,51 @@ function StatusChip({ label, status }: StatusChipProps) {
       <span>{label}</span>
     </div>
   );
+}
+
+function renderAnswerWithCitations(
+  text: string,
+  citations: RunCitation[] | undefined,
+  onCitationClick: (citation: RunCitation) => void,
+) {
+  const citationMap = new Map<number, RunCitation>();
+  for (const citation of citations ?? []) {
+    citationMap.set(citation.citation_index + 1, citation);
+  }
+
+  const segments: ReactNode[] = [];
+  const pattern = /\[(\d+)\]/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push(text.slice(lastIndex, match.index));
+    }
+    const citationNumber = Number(match[1]);
+    const citation = citationMap.get(citationNumber);
+    if (citation) {
+      segments.push(
+        <button
+          key={`${match.index}-${citation.source_id}-${citationNumber}`}
+          type="button"
+          className="citation-chip"
+          onClick={() => onCitationClick(citation)}
+        >
+          [{citationNumber}]
+        </button>,
+      );
+    } else {
+      segments.push(match[0]);
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push(text.slice(lastIndex));
+  }
+
+  return segments;
 }
 
 function ModalShell({
@@ -596,6 +685,19 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [editingSourceTitle, setEditingSourceTitle] = useState('');
   const [draftQuestion, setDraftQuestion] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedRun, setSelectedRun] = useState<RunRecord | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState('');
+  const [currentAnswerText, setCurrentAnswerText] = useState('');
+  const [currentRun, setCurrentRun] = useState<RunRecord | null>(null);
+  const [questionBusy, setQuestionBusy] = useState(false);
+  const [questionError, setQuestionError] = useState<string | null>(null);
+  const [streamingRunId, setStreamingRunId] = useState<number | null>(null);
+  const [sourceDetail, setSourceDetail] = useState<SourceDetail | null>(null);
+  const [sourceDetailOpen, setSourceDetailOpen] = useState(false);
+  const [sourceDetailLoading, setSourceDetailLoading] = useState(false);
+  const [sourceDetailError, setSourceDetailError] = useState<string | null>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
   const workerBaseUrl = useMemo(() => import.meta.env.VITE_WORKER_BASE_URL || 'http://localhost:8001', []);
@@ -618,6 +720,121 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     }
     const data = (await response.json()) as SourceItem[];
     setSources(data);
+  }
+
+  async function refreshRuns() {
+    const response = await fetch(`${apiBaseUrl}/runs`, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error('Unable to load runs');
+    }
+    const data = (await response.json()) as RunRecord[];
+    setRuns(data);
+    if (selectedRunId !== null) {
+      const selected = data.find((run) => run.id === selectedRunId);
+      if (selected) {
+        setSelectedRun(selected);
+      }
+    }
+  }
+
+  async function refreshRun(runId: number) {
+    const response = await fetch(`${apiBaseUrl}/runs/${runId}`, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error('Unable to load run');
+    }
+    const data = (await response.json()) as RunRecord;
+    setCurrentRun((current) => (current?.id === runId ? data : current));
+    setSelectedRun(data);
+    setRuns((current) => current.map((run) => (run.id === runId ? data : run)));
+    return data;
+  }
+
+  async function openSourceDetail(sourceId: number) {
+    setSourceDetailOpen(true);
+    setSourceDetailLoading(true);
+    setSourceDetailError(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/sources/${sourceId}`, { credentials: 'include' });
+      if (!response.ok) {
+        const data = (await response.json()) as { detail?: string };
+        throw new Error(data.detail || 'Unable to load source detail');
+      }
+      const data = (await response.json()) as SourceDetail;
+      setSourceDetail(data);
+    } catch (error_) {
+      setSourceDetailError(error_ instanceof Error ? error_.message : 'Unable to load source detail');
+    } finally {
+      setSourceDetailLoading(false);
+    }
+  }
+
+  async function streamRun(runId: number) {
+    setStreamingRunId(runId);
+    try {
+      const response = await fetch(`${apiBaseUrl}/runs/${runId}/stream`, { credentials: 'include' });
+      if (!response.ok || !response.body) {
+        const data = response.ok ? null : ((await response.json().catch(() => ({}))) as { detail?: string });
+        throw new Error(data?.detail || 'Unable to stream run answer');
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let answerText = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        answerText += decoder.decode(value, { stream: true });
+        setCurrentAnswerText(answerText);
+      }
+      answerText += decoder.decode();
+      setCurrentAnswerText(answerText);
+      await refreshRun(runId);
+      await refreshRuns();
+    } catch (error_) {
+      setQuestionError(error_ instanceof Error ? error_.message : 'Unable to stream answer');
+    } finally {
+      setStreamingRunId(null);
+    }
+  }
+
+  async function submitQuestion(question: string) {
+    const trimmed = question.trim();
+    if (!trimmed) {
+      setQuestionError('Ask a question before running the notebook.');
+      return;
+    }
+    if (!providerReady) {
+      setQuestionError('Configure Gemini before asking questions.');
+      return;
+    }
+
+    setQuestionBusy(true);
+    setQuestionError(null);
+    setCurrentQuestion(trimmed);
+    setCurrentAnswerText('');
+    try {
+      const response = await fetch(`${apiBaseUrl}/runs`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmed }),
+      });
+      const data = (await response.json()) as RunRecord & { detail?: string };
+      if (!response.ok) {
+        throw new Error(data.detail || 'Unable to create run');
+      }
+      setCurrentRun(data);
+      setSelectedRunId(data.id);
+      setSelectedRun(data);
+      setDraftQuestion('');
+      await refreshRuns();
+      await streamRun(data.id);
+    } catch (error_) {
+      setQuestionError(error_ instanceof Error ? error_.message : 'Unable to create run');
+    } finally {
+      setQuestionBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -682,7 +899,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
     async function loadBootstrapData() {
       try {
-        await Promise.all([loadNotebook(), refreshProvider(), refreshSources()]);
+        await Promise.all([loadNotebook(), refreshProvider(), refreshSources(), refreshRuns()]);
       } catch (error_) {
         if (!cancelled) {
           setLoadError(error_ instanceof Error ? error_.message : 'Unable to load notebook data');
@@ -728,6 +945,55 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       window.clearInterval(interval);
     };
   }, [activeTab, apiBaseUrl]);
+
+  useEffect(() => {
+    if (activeTab !== 'runs') {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function pollRuns() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/runs`, { credentials: 'include' });
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as RunRecord[];
+        if (!cancelled) {
+          setRuns(data);
+          if (selectedRunId !== null) {
+            const selected = data.find((run) => run.id === selectedRunId);
+            if (selected) {
+              setSelectedRun(selected);
+            }
+          }
+        }
+      } catch {
+        // Keep the last known run history visible.
+      }
+    }
+
+    void pollRuns();
+    const interval = window.setInterval(() => {
+      void pollRuns();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeTab, apiBaseUrl, selectedRunId]);
+
+  useEffect(() => {
+    if (selectedRunId === null) {
+      return;
+    }
+    const match = runs.find((run) => run.id === selectedRunId);
+    if (match) {
+      setSelectedRun(match);
+    }
+  }, [runs, selectedRunId]);
 
   return (
     <div className="app-shell">
@@ -854,49 +1120,84 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 <div className="empty-state">
                   <h3>Start with a question</h3>
                   <p>
-                    Add a source, configure Gemini, and ask a grounded question. Answers will stream
-                    here with inline citations.
+                    Add a source, configure Gemini, and ask a grounded question. Answers stream here
+                    with inline citations.
                   </p>
                 </div>
+
                 {!providerReady && (
                   <div className="notice-banner">
                     Gemini is not validated yet. Save and test a key before running questions.
                   </div>
                 )}
-                <div className="message message-user">
-                  <span className="message-label">You</span>
-                  <p>What does the notebook contain?</p>
-                </div>
-                <div className="message message-assistant">
-                  <span className="message-label">OakResearch</span>
-                  <p>
-                    {providerReady
-                      ? 'Waiting for ingestion and run orchestration to be connected.'
-                      : 'Configure Gemini to unlock the answering flow.'}
-                  </p>
-                </div>
+                {questionError && <div className="notice-banner">{questionError}</div>}
+
+                {currentQuestion ? (
+                  <>
+                    <div className="message message-user">
+                      <span className="message-label">You</span>
+                      <p>{currentQuestion}</p>
+                    </div>
+                    <div className="message message-assistant">
+                      <span className="message-label">OakResearch</span>
+                      <p>
+                        {currentRun?.answer?.citations && (currentAnswerText || currentRun?.answer?.answer_text)
+                          ? renderAnswerWithCitations(
+                              currentAnswerText || currentRun.answer.answer_text,
+                              currentRun.answer.citations,
+                              openSourceDetail,
+                            )
+                          : currentAnswerText ||
+                            (currentRun?.status === 'blocked'
+                              ? currentRun.blocked_reason || 'The notebook sources did not support an answer.'
+                              : streamingRunId !== null
+                                ? 'Generating answer…'
+                                : currentRun?.answer?.answer_text || 'Run the question to see the answer here.')}
+                      </p>
+                      {currentRun?.answer?.trace_summary && <p className="subtle">{currentRun.answer.trace_summary}</p>}
+                    </div>
+                  </>
+                ) : (
+                  <div className="message message-assistant">
+                    <span className="message-label">OakResearch</span>
+                    <p>
+                      {providerReady
+                        ? 'Ask a grounded question to start a streamed answer run.'
+                        : 'Configure Gemini to unlock the answering flow.'}
+                    </p>
+                  </div>
+                )}
               </div>
-              <div className="composer">
+
+              <form
+                className="composer"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  const formData = new FormData(event.currentTarget);
+                  await submitQuestion(String(formData.get('question') ?? ''));
+                }}
+              >
                 <label htmlFor="question" className="panel-label">
                   Question
                 </label>
                 <textarea
                   id="question"
+                  name="question"
                   value={draftQuestion}
                   onChange={(event) => setDraftQuestion(event.target.value)}
                   placeholder="Ask something grounded in this notebook..."
                   rows={5}
-                  disabled={!providerReady}
+                  disabled={!providerReady || questionBusy || streamingRunId !== null}
                 />
                 <div className="composer-actions">
-                  <button type="button" className="secondary-action" disabled={!providerReady}>
-                    Save draft
+                  <button type="button" className="secondary-action" disabled={!providerReady || questionBusy} onClick={() => setDraftQuestion('')}>
+                    Clear
                   </button>
-                  <button type="button" className="primary-action" disabled={!providerReady}>
-                    Run query
+                  <button type="submit" className="primary-action" disabled={!providerReady || questionBusy || streamingRunId !== null}>
+                    {questionBusy || streamingRunId !== null ? 'Running…' : 'Run query'}
                   </button>
                 </div>
-              </div>
+              </form>
             </div>
           )}
 
@@ -1034,19 +1335,167 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           )}
 
           {activeTab === 'runs' && (
-            <div className="panel empty-grid">
-              <div>
-                <h3>Runs</h3>
-                <p>Every query attempt will appear here with status, citations, and trace details.</p>
+            <div className="panel runs-panel">
+              <div className="runs-header">
+                <div>
+                  <h3>Runs</h3>
+                  <p>Every query attempt appears here with status, citations, and trace details.</p>
+                </div>
+                <button type="button" className="secondary-action" onClick={() => void refreshRuns()}>
+                  Refresh
+                </button>
               </div>
-              <div className="placeholder-card">
-                <strong>Run history is empty</strong>
-                <p>Ask your first question to create a stored run.</p>
+
+              <div className="runs-layout">
+                <div className="runs-list">
+                  {runs.length === 0 ? (
+                    <div className="placeholder-card">
+                      <strong>Run history is empty</strong>
+                      <p>Ask your first question to create a stored run.</p>
+                    </div>
+                  ) : (
+                    runs.map((run) => {
+                      const isSelected = selectedRunId === run.id;
+                      return (
+                        <button
+                          key={run.id}
+                          type="button"
+                          className={`run-row ${isSelected ? 'active' : ''}`}
+                          onClick={() => {
+                            setSelectedRunId(run.id);
+                            setSelectedRun(run);
+                            void refreshRun(run.id);
+                          }}
+                        >
+                          <div className="run-row-head">
+                            <strong>{run.question}</strong>
+                            <span className="badge">{statusLabel(run.status)}</span>
+                          </div>
+                          <p>{run.step_label || 'queued-for-answering'}</p>
+                          {run.answer?.answer_text ? (
+                            <p className="subtle">{run.answer.answer_text.slice(0, 120)}</p>
+                          ) : run.blocked_reason ? (
+                            <p className="form-error">{run.blocked_reason}</p>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="run-detail">
+                  {selectedRun ? (
+                    <>
+                      <div className="run-detail-header">
+                        <div>
+                          <p className="eyebrow">Run detail</p>
+                          <h3>{selectedRun.question}</h3>
+                          <p className="subtle">{selectedRun.step_label || 'queued-for-answering'}</p>
+                        </div>
+                        <div className="run-detail-actions">
+                          <span className="badge">{statusLabel(selectedRun.status)}</span>
+                          <button
+                            type="button"
+                            className="secondary-action"
+                            onClick={() => {
+                              setActiveTab('chat');
+                              setDraftQuestion(selectedRun.question);
+                              void submitQuestion(selectedRun.question);
+                            }}
+                          >
+                            Rerun
+                          </button>
+                        </div>
+                      </div>
+
+                      {selectedRun.blocked_reason && <p className="form-error">{selectedRun.blocked_reason}</p>}
+                      {selectedRun.answer?.trace_summary && <p className="subtle">{selectedRun.answer.trace_summary}</p>}
+                      <div className="answer-card">
+                        <span className="panel-label">Answer</span>
+                        <p>
+                          {selectedRun.answer
+                            ? renderAnswerWithCitations(selectedRun.answer.answer_text, selectedRun.answer.citations, openSourceDetail)
+                            : 'No answer stored for this run yet.'}
+                        </p>
+                      </div>
+                      <div className="citation-list">
+                        <span className="panel-label">Citations</span>
+                        {selectedRun.answer?.citations?.length ? (
+                          selectedRun.answer.citations.map((citation) => (
+                            <button
+                              key={citation.id}
+                              type="button"
+                              className="citation-chip citation-chip-block"
+                              onClick={() => void openSourceDetail(citation.source_id)}
+                            >
+                              [{citation.citation_index + 1}] {citation.citation_text}
+                            </button>
+                          ))
+                        ) : (
+                          <p className="subtle">No citations stored for this run.</p>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="placeholder-card">
+                      <strong>Select a run</strong>
+                      <p>Open a past attempt to inspect its answer and citations.</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </section>
       </main>
+
+      <ModalShell
+        open={sourceDetailOpen}
+        title={sourceDetail?.title || 'Source detail'}
+        description="Inspect the cited source and its stored chunks."
+        onClose={() => {
+          setSourceDetailOpen(false);
+          setSourceDetail(null);
+          setSourceDetailError(null);
+        }}
+      >
+        <div className="modal-section">
+          {sourceDetailLoading ? (
+            <p>Loading source detail…</p>
+          ) : sourceDetailError ? (
+            <p className="form-error">{sourceDetailError}</p>
+          ) : sourceDetail ? (
+            <>
+              <div className="provider-summary">
+                <StatusChip label={statusLabel(sourceDetail.status)} status={chipStatusFromLabel(sourceDetail.status)} />
+                <p className="subtle">
+                  {sourceDetail.source_type} · {sourceDetail.metadata.original_name ? `File: ${String(sourceDetail.metadata.original_name)}` : sourceDetail.payload_uri}
+                </p>
+              </div>
+              {sourceDetail.job_step_label && <p className="subtle">Step: {sourceDetail.job_step_label}</p>}
+              {sourceDetail.job_error_message && <p className="form-error">{sourceDetail.job_error_message}</p>}
+              <div className="chunk-list">
+                {sourceDetail.chunks.length === 0 ? (
+                  <div className="placeholder-card">
+                    <strong>No chunks stored yet</strong>
+                    <p>This source has not been chunked for retrieval.</p>
+                  </div>
+                ) : (
+                  sourceDetail.chunks.map((chunk) => (
+                    <div key={chunk.id} className="chunk-card">
+                      <div className="chunk-card-header">
+                        <strong>Chunk {chunk.chunk_index + 1}</strong>
+                        <span className="badge">{chunk.chunk_hash.slice(0, 8)}</span>
+                      </div>
+                      <p>{chunk.chunk_text}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </ModalShell>
 
       <ProviderModal
         open={providerModalOpen}

@@ -2,7 +2,7 @@
 
 Minimal self-hostable deep research notebook starter.
 
-> WIP: the app shell, owner auth, provider config, and source ingestion are in place; answering and diagnostics are next.
+> WIP: the app shell, owner auth, provider config, source ingestion, and grounded answering flow are in place; run history and diagnostics are being rounded out.
 
 ## Run
 ```bash

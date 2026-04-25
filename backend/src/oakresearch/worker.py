@@ -9,6 +9,7 @@ import asyncpg
 from fastapi import FastAPI, Request
 
 from .db import create_pool, get_bootstrap_state, initialize_database
+from .answering import process_next_run_job_once
 from .ingestion import process_next_source_job_once
 from .settings import get_settings
 
@@ -37,6 +38,8 @@ async def ingestion_loop(app: FastAPI) -> None:
     while True:
         try:
             processed = await process_next_source_job_once(pool)
+            if processed is None:
+                processed = await process_next_run_job_once(pool)
             if processed is None:
                 await asyncio.sleep(2.0)
         except asyncio.CancelledError:

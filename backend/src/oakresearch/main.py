@@ -10,6 +10,7 @@ from typing import Any
 
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -21,10 +22,12 @@ from .db import (
     create_run,
     create_session,
     create_source,
+    get_source_detail,
+    list_run_events,
+    get_provider_config,
     get_authenticated_user,
     get_bootstrap_state,
     get_provider_api_key,
-    get_provider_config,
     get_run,
     get_source,
     initialize_database,
@@ -404,6 +407,20 @@ async def get_sources(request: Request, _: dict[str, Any] = Depends(require_auth
         return await list_sources(conn)
 
 
+@app.get("/sources/{source_id}")
+async def get_source_record(
+    request: Request,
+    source_id: int,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        source = await get_source_detail(conn, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
 @app.post("/sources")
 async def create_source_record(
     request: Request,
@@ -499,6 +516,44 @@ async def get_runs(request: Request, _: dict[str, Any] = Depends(require_authent
         return await list_runs(conn)
 
 
+@app.get("/runs/{run_id}/stream")
+async def stream_run_record(
+    request: Request,
+    run_id: int,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> StreamingResponse:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        if await get_run(conn, run_id) is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    async def event_stream():
+        last_event_id = 0
+        emitted_tokens = False
+        while True:
+            async with pool.acquire() as conn:
+                run = await get_run(conn, run_id)
+                if run is None:
+                    break
+                events = await list_run_events(conn, run_id, after_id=last_event_id)
+            for event in events:
+                last_event_id = event["id"]
+                event_text = event.get("event_text") or ""
+                if event_text:
+                    emitted_tokens = True
+                    yield event_text
+            if run["status"] in {"succeeded", "failed", "blocked"}:
+                if not emitted_tokens:
+                    answer = run.get("answer") or {}
+                    answer_text = answer.get("answer_text")
+                    if answer_text:
+                        yield answer_text
+                break
+            await asyncio.sleep(0.35)
+
+    return StreamingResponse(event_stream(), media_type="text/plain; charset=utf-8")
+
+
 @app.get("/runs/{run_id}")
 async def get_run_record(
     request: Request,
@@ -545,4 +600,7 @@ async def create_run_record(
         }
 
     async with pool.acquire() as conn:
+        provider_config = await get_provider_config(conn)
+        if payload.answer is None and (provider_config is None or provider_config.get("validation_status") != "valid"):
+            raise HTTPException(status_code=409, detail="Gemini provider configuration is not ready")
         return await create_run(conn, run_payload)

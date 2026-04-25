@@ -751,6 +751,344 @@ async def get_source(conn: asyncpg.Connection, source_id: int) -> dict[str, Any]
     return data
 
 
+async def list_source_chunks_for_notebook(conn: asyncpg.Connection, notebook_id: int) -> list[dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            sc.id,
+            sc.source_id,
+            sc.chunk_index,
+            sc.chunk_text,
+            sc.chunk_hash,
+            sc.embedding,
+            s.title AS source_title,
+            s.source_type
+        FROM source_chunks sc
+        JOIN sources s ON s.id = sc.source_id
+        WHERE s.notebook_id = $1
+        ORDER BY sc.source_id ASC, sc.chunk_index ASC
+        """,
+        notebook_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def ensure_source_chunk_embeddings(
+    conn: asyncpg.Connection,
+    provider_api_key: str,
+    chunks: list[dict[str, Any]],
+) -> None:
+    from .answering import embed_text
+
+    for chunk in chunks:
+        if chunk.get("embedding") is not None:
+            continue
+        embedding = await embed_text(provider_api_key, str(chunk["chunk_text"]))
+        await conn.execute(
+            """
+            UPDATE source_chunks
+            SET embedding = $2::vector
+            WHERE id = $1
+            """,
+            chunk["id"],
+            "[" + ",".join(f"{float(value):.8f}" for value in embedding) + "]",
+        )
+        chunk["embedding"] = embedding
+
+
+async def get_source_detail(conn: asyncpg.Connection, source_id: int) -> dict[str, Any] | None:
+    source = await get_source(conn, source_id)
+    if source is None:
+        return None
+
+    chunks = await conn.fetch(
+        """
+        SELECT id, source_id, job_id, chunk_index, chunk_text, chunk_hash, created_at
+        FROM source_chunks
+        WHERE source_id = $1
+        ORDER BY chunk_index ASC
+        """,
+        source_id,
+    )
+    source["chunks"] = [dict(chunk) for chunk in chunks]
+    return source
+
+
+async def append_run_event(
+    conn: asyncpg.Connection,
+    run_id: int,
+    *,
+    event_type: str,
+    event_text: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO run_events (run_id, event_type, event_text, payload)
+        VALUES ($1, $2, $3, $4::jsonb)
+        RETURNING *
+        """,
+        run_id,
+        event_type,
+        event_text,
+        json.dumps(payload or {}),
+    )
+    assert row is not None
+    return dict(row)
+
+
+async def list_run_events(
+    conn: asyncpg.Connection,
+    run_id: int,
+    *,
+    after_id: int = 0,
+) -> list[dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT *
+        FROM run_events
+        WHERE run_id = $1 AND id > $2
+        ORDER BY id ASC
+        """,
+        run_id,
+        after_id,
+    )
+    return [dict(row) for row in rows]
+
+
+async def enqueue_run_job(conn: asyncpg.Connection, run_id: int) -> dict[str, Any]:
+    job = await conn.fetchrow(
+        """
+        INSERT INTO jobs (kind, entity_type, entity_id, status, step_label, payload)
+        VALUES ('run-question', 'run', $1, 'queued', 'queued-for-answering', '{}'::jsonb)
+        RETURNING *
+        """,
+        run_id,
+    )
+    assert job is not None
+    return dict(job)
+
+
+async def claim_next_run_job(conn: asyncpg.Connection) -> dict[str, Any] | None:
+    row = await conn.fetchrow(
+        """
+        WITH next_job AS (
+            SELECT id
+            FROM jobs
+            WHERE kind = 'run-question' AND status = 'queued'
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        ), claimed AS (
+            UPDATE jobs
+            SET status = 'running',
+                step_label = 'retrieving-relevant-chunks',
+                started_at = COALESCE(started_at, now()),
+                updated_at = now()
+            WHERE id IN (SELECT id FROM next_job)
+            RETURNING *
+        )
+        SELECT * FROM claimed
+        """
+    )
+    if row is None:
+        return None
+    return dict(row)
+
+
+async def mark_run_job_running(conn: asyncpg.Connection, job_id: int, *, step_label: str) -> None:
+    await conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'running',
+            step_label = $2,
+            started_at = COALESCE(started_at, now()),
+            updated_at = now()
+        WHERE id = $1
+        """,
+        job_id,
+        step_label,
+    )
+
+
+async def mark_run_job_succeeded(conn: asyncpg.Connection, job_id: int, *, step_label: str) -> None:
+    await conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'succeeded',
+            step_label = $2,
+            finished_at = now(),
+            updated_at = now(),
+            error_message = NULL
+        WHERE id = $1
+        """,
+        job_id,
+        step_label,
+    )
+
+
+async def mark_run_job_failed(conn: asyncpg.Connection, job_id: int, error_message: str) -> None:
+    await conn.execute(
+        """
+        UPDATE jobs
+        SET status = 'failed',
+            step_label = 'answer-failed',
+            error_message = $2,
+            finished_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        """,
+        job_id,
+        error_message,
+    )
+
+
+async def mark_run_running(conn: asyncpg.Connection, *, run_id: int, step_label: str) -> None:
+    await conn.execute(
+        """
+        UPDATE runs
+        SET status = 'running',
+            step_label = $2,
+            started_at = COALESCE(started_at, now()),
+            updated_at = now(),
+            blocked_reason = NULL,
+            error_message = NULL
+        WHERE id = $1
+        """,
+        run_id,
+        step_label,
+    )
+
+
+async def mark_run_blocked(conn: asyncpg.Connection, *, run_id: int, blocked_reason: str) -> None:
+    await conn.execute(
+        """
+        UPDATE runs
+        SET status = 'blocked',
+            step_label = 'grounding-insufficient',
+            blocked_reason = $2,
+            finished_at = now(),
+            updated_at = now(),
+            error_message = NULL
+        WHERE id = $1
+        """,
+        run_id,
+        blocked_reason,
+    )
+
+
+async def mark_run_failed(conn: asyncpg.Connection, *, run_id: int, error_message: str) -> None:
+    await conn.execute(
+        """
+        UPDATE runs
+        SET status = 'failed',
+            step_label = 'answer-failed',
+            error_message = $2,
+            finished_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        """,
+        run_id,
+        error_message,
+    )
+
+
+async def mark_run_succeeded(conn: asyncpg.Connection, *, run_id: int, step_label: str = 'answer-complete') -> None:
+    await conn.execute(
+        """
+        UPDATE runs
+        SET status = 'succeeded',
+            step_label = $2,
+            finished_at = now(),
+            updated_at = now(),
+            blocked_reason = NULL,
+            error_message = NULL
+        WHERE id = $1
+        """,
+        run_id,
+        step_label,
+    )
+
+
+async def complete_run(
+    conn: asyncpg.Connection,
+    *,
+    run_id: int,
+    status: str,
+    step_label: str,
+    blocked_reason: str | None,
+    answer_text: str,
+    trace_summary: str | None,
+    model: str | None,
+    citations: list[dict[str, Any]],
+) -> None:
+    async with conn.transaction():
+        if status == 'blocked':
+            await conn.execute(
+                """
+                UPDATE runs
+                SET status = $2,
+                    step_label = $3,
+                    blocked_reason = $4,
+                    finished_at = now(),
+                    updated_at = now(),
+                    error_message = NULL
+                WHERE id = $1
+                """,
+                run_id,
+                status,
+                step_label,
+                blocked_reason,
+            )
+        else:
+            await conn.execute(
+                """
+                UPDATE runs
+                SET status = $2,
+                    step_label = $3,
+                    blocked_reason = NULL,
+                    finished_at = now(),
+                    updated_at = now(),
+                    error_message = NULL
+                WHERE id = $1
+                """,
+                run_id,
+                status,
+                step_label,
+            )
+
+        answer = await conn.fetchrow(
+            """
+            INSERT INTO answers (run_id, answer_text, trace_summary, model)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (run_id)
+            DO UPDATE SET answer_text = EXCLUDED.answer_text,
+                          trace_summary = EXCLUDED.trace_summary,
+                          model = EXCLUDED.model,
+                          updated_at = now()
+            RETURNING *
+            """,
+            run_id,
+            answer_text,
+            trace_summary,
+            model,
+        )
+        assert answer is not None
+        await conn.execute("DELETE FROM citations WHERE answer_id = $1", answer["id"])
+        for index, citation in enumerate(citations):
+            await conn.execute(
+                """
+                INSERT INTO citations (answer_id, source_id, chunk_ref, citation_text, citation_index)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                answer["id"],
+                citation["source_id"],
+                citation.get("chunk_ref"),
+                citation["citation_text"],
+                citation.get("citation_index", index),
+            )
+
+
 async def update_source_title(conn: asyncpg.Connection, source_id: int, title: str) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
@@ -802,6 +1140,8 @@ async def create_run(conn: asyncpg.Connection, payload: dict[str, Any]) -> dict[
         assert run is not None
 
         answer_payload = payload.get("answer")
+        if answer_payload is None and payload.get("status", "queued") == "queued":
+            await enqueue_run_job(conn, int(run["id"]))
         if answer_payload is not None:
             answer = await conn.fetchrow(
                 """

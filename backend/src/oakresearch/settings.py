@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     app_secret: str = Field(default="change-me-in-production", alias="APP_SECRET")
     session_secret: str = Field(default="change-me-in-production", alias="SESSION_SECRET")
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_embedding_model: str = Field(default="text-embedding-004", alias="GEMINI_EMBEDDING_MODEL")
     storage_path: str = Field(default="/data/oakresearch", alias="SOURCE_STORAGE_PATH")
     web_origin: str = Field(default="http://localhost:5173", alias="WEB_ORIGIN")
     cookie_secure: bool = Field(default=False, alias="COOKIE_SECURE")

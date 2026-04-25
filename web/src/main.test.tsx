@@ -46,13 +46,42 @@ type SourceRecord = {
   status: string;
 };
 
+type RunRecord = {
+  id: number;
+  notebook_id: number;
+  question: string;
+  status: string;
+  step_label: string | null;
+  blocked_reason: string | null;
+  error_message: string | null;
+  rerun_of_run_id: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  answer?: {
+    id: number;
+    answer_text: string;
+    trace_summary: string | null;
+    model: string | null;
+    citations: Array<{
+      id: number;
+      source_id: number;
+      chunk_ref: string | null;
+      citation_text: string;
+      citation_index: number;
+    }>;
+  } | null;
+};
+
 type ApiState = {
   providerConfig: ProviderConfig;
   sources: SourceRecord[];
+  runs: RunRecord[];
   healthStatus: 'ok' | 'degraded';
   workerStatus: 'ok' | 'degraded';
   defaultNotebook: typeof DEFAULT_NOTEBOOK;
   nextSourceId: number;
+  nextRunId: number;
   patchShouldFail: boolean;
 };
 
@@ -255,6 +284,99 @@ function installApiMock(state: ApiState) {
       return jsonResponse(source);
     }
 
+    if (url.pathname.startsWith('/sources/') && method === 'GET') {
+      const sourceId = Number(url.pathname.split('/').pop());
+      const source = state.sources.find((item) => item.id === sourceId) ?? state.sources[0];
+      if (!source) {
+        return jsonResponse({ detail: 'Source not found' }, 404);
+      }
+      return jsonResponse({
+        ...source,
+        chunks: [
+          {
+            id: source.id * 10,
+            source_id: source.id,
+            job_id: source.latest_job_id ?? source.id,
+            chunk_index: 0,
+            chunk_text: `Chunk for ${source.title}`,
+            chunk_hash: `hash-${source.id}`,
+            created_at: source.created_at,
+          },
+        ],
+      });
+    }
+
+    if (url.pathname === '/runs' && method === 'GET') {
+      return jsonResponse(state.runs);
+    }
+
+    if (url.pathname === '/runs' && method === 'POST') {
+      const body = parseJsonBody(init);
+      const question = String(body.question ?? 'What does the notebook contain?');
+      const run: RunRecord = {
+        id: state.nextRunId,
+        notebook_id: state.defaultNotebook.id,
+        question,
+        status: 'queued',
+        step_label: 'queued-for-answering',
+        blocked_reason: null,
+        error_message: null,
+        rerun_of_run_id: typeof body.rerun_of_run_id === 'number' ? body.rerun_of_run_id : null,
+        created_at: '2026-04-24T00:00:00Z',
+        started_at: null,
+        finished_at: null,
+      };
+      state.runs = [run, ...state.runs];
+      state.nextRunId += 1;
+      return jsonResponse(run);
+    }
+
+    if (url.pathname.startsWith('/runs/') && url.pathname.endsWith('/stream') && method === 'GET') {
+      const runId = Number(url.pathname.split('/')[2]);
+      const run = state.runs.find((item) => item.id === runId);
+      const answerText =
+        run?.answer?.answer_text ||
+        (run?.status === 'blocked'
+          ? 'I don’t have enough grounded evidence in the notebook sources to answer that confidently. Please add a more relevant source or ask a narrower question.'
+          : 'OakResearch uses FastAPI and Postgres [1].');
+      if (run) {
+        run.status = run.status === 'blocked' ? 'blocked' : 'succeeded';
+        run.step_label = run.status === 'blocked' ? 'grounding-insufficient' : 'answer-complete';
+        run.blocked_reason = run.status === 'blocked' ? 'Insufficient grounding in notebook sources' : null;
+        run.finished_at = '2026-04-24T00:00:00Z';
+        run.answer = {
+          id: run.id * 10,
+          answer_text: answerText,
+          trace_summary: 'Retrieved 1 chunk(s); Sources: OakResearch overview',
+          model: 'gemini-2.0-flash',
+          citations: run.status === 'blocked'
+            ? []
+            : [
+                {
+                  id: run.id * 100,
+                  source_id: state.sources[0]?.id ?? 1,
+                  chunk_ref: `${state.sources[0]?.id ?? 1}:0`,
+                  citation_text: 'Chunk for OakResearch overview',
+                  citation_index: 0,
+                },
+              ],
+        };
+      }
+      return new Response(answerText, {
+        status: 200,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+
+    if (url.pathname.startsWith('/runs/') && method === 'GET') {
+      const runId = Number(url.pathname.split('/')[2]);
+      const run = state.runs.find((item) => item.id === runId);
+      if (!run) {
+        return jsonResponse({ detail: 'Run not found' }, 404);
+      }
+      return jsonResponse(run);
+    }
+
     if (url.pathname === '/auth/onboarding' && method === 'POST') {
       return jsonResponse({ authenticated: true, user: AUTH_USER, onboarding_required: false });
     }
@@ -306,6 +428,8 @@ describe('OakResearch shell', () => {
       workerStatus: 'ok',
       defaultNotebook: DEFAULT_NOTEBOOK,
       nextSourceId: 2,
+      nextRunId: 2,
+      runs: [],
       patchShouldFail: false,
     };
     const fetchMock = installApiMock(state);
@@ -355,6 +479,8 @@ describe('OakResearch shell', () => {
       workerStatus: 'ok',
       defaultNotebook: DEFAULT_NOTEBOOK,
       nextSourceId: 2,
+      nextRunId: 2,
+      runs: [],
       patchShouldFail: false,
     };
     const fetchMock = installApiMock(state);
@@ -489,6 +615,8 @@ describe('OakResearch shell', () => {
       workerStatus: 'ok',
       defaultNotebook: DEFAULT_NOTEBOOK,
       nextSourceId: 2,
+      nextRunId: 2,
+      runs: [],
       patchShouldFail: false,
     };
     const fetchMock = installApiMock(state);
@@ -507,5 +635,63 @@ describe('OakResearch shell', () => {
     ));
     await waitFor(() => expect(state.sources[0]?.status).toBe('queued'));
     await waitFor(() => expect(screen.getByText('Queued', { selector: '.badge.source-status' })).toBeInTheDocument());
+  });
+
+  it('streams question answers and opens cited source details', async () => {
+    const state: ApiState = {
+      providerConfig: {
+        provider_name: 'gemini',
+        validation_status: 'valid',
+        validated_at: '2026-04-24T00:00:00Z',
+        created_at: '2026-04-24T00:00:00Z',
+        updated_at: '2026-04-24T00:00:00Z',
+        api_key_present: true,
+        validation_message: null,
+      },
+      sources: [
+        {
+          id: 1,
+          notebook_id: 1,
+          source_type: 'text',
+          title: 'OakResearch overview',
+          payload_uri: '/data/oakresearch/sources/1.txt',
+          payload_sha256: 'sha-1',
+          metadata: { input_kind: 'text' },
+          created_at: '2026-04-24T00:00:00Z',
+          updated_at: '2026-04-24T00:00:00Z',
+          latest_job_id: 1,
+          job_status: 'succeeded',
+          job_step_label: 'ingestion-complete',
+          job_error_message: null,
+          job_started_at: '2026-04-24T00:00:00Z',
+          job_finished_at: '2026-04-24T00:00:00Z',
+          status: 'succeeded',
+        },
+      ],
+      healthStatus: 'ok',
+      workerStatus: 'ok',
+      defaultNotebook: DEFAULT_NOTEBOOK,
+      nextSourceId: 2,
+      nextRunId: 2,
+      runs: [],
+      patchShouldFail: false,
+    };
+    installApiMock(state);
+    const user = userEvent.setup();
+
+    render(<App />);
+    const questionInput = await screen.findByRole('textbox', { name: /Question/i });
+
+    await user.click(questionInput);
+    await user.keyboard('What stack does OakResearch use?');
+    await waitFor(() => expect((questionInput as HTMLTextAreaElement).value).toBe('What stack does OakResearch use?'));
+    await user.click(screen.getByRole('button', { name: /Run query/i }));
+
+    await waitFor(() => expect(screen.getByText(/OakResearch uses FastAPI and Postgres/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: '[1]' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: '[1]' }));
+    await waitFor(() => expect(screen.getByText(/OakResearch overview/i, { selector: '.eyebrow' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Chunk for OakResearch overview/i)).toBeInTheDocument());
   });
 });
