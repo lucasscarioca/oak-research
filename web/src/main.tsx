@@ -32,6 +32,14 @@ type AuthUser = {
   username: string;
 };
 
+type Notebook = {
+  id: number;
+  name: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 type AuthFormState = {
   username: string;
   password: string;
@@ -50,7 +58,6 @@ const tabs: Array<{ id: TabId; label: string; description: string }> = [
 ];
 
 const sidebarItems: Array<{ label: string; value: string }> = [
-  { label: 'Notebooks', value: '1 notebook' },
   { label: 'Archive', value: 'Locked for MVP' },
   { label: 'Provider', value: 'Gemini' },
   { label: 'Diagnostics', value: 'System status' },
@@ -161,6 +168,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [apiStatus, setApiStatus] = useState<RuntimeStatus>('checking');
   const [workerStatus, setWorkerStatus] = useState<RuntimeStatus>('checking');
   const [databaseStatus, setDatabaseStatus] = useState<RuntimeStatus>('checking');
+  const [notebook, setNotebook] = useState<Notebook | null>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
   const workerBaseUrl = useMemo(() => import.meta.env.VITE_WORKER_BASE_URL || 'http://localhost:8001', []);
@@ -205,6 +213,32 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     };
   }, [apiBaseUrl, workerBaseUrl]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadNotebook() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/notebooks/default`, { credentials: 'include' });
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as Notebook;
+        if (!cancelled) {
+          setNotebook(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setNotebook(null);
+        }
+      }
+    }
+
+    loadNotebook();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBaseUrl]);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -218,14 +252,15 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
         <div className="sidebar-panel">
           <div className="panel-label">Notebook</div>
-          <button className="notebook-card active" type="button">
+          <div className="notebook-card active" aria-label="Active notebook">
             <div>
-              <strong>Default notebook</strong>
-              <span>Auto-created on first run</span>
+              <strong>{notebook?.name ?? 'Default notebook'}</strong>
+              <span>
+                {notebook ? 'Auto-created on first run' : 'Loading notebook…'}
+              </span>
             </div>
             <span className="badge">Active</span>
-          </button>
-          <button className="secondary-action" type="button">+ Create notebook</button>
+          </div>
         </div>
 
         <nav className="sidebar-panel">
@@ -263,8 +298,10 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
         <header className="workspace-header">
           <div>
             <p className="eyebrow">Notebook workspace</p>
-            <h2>Default notebook</h2>
-            <p className="subtle">Ask grounded questions over your sources.</p>
+            <h2>{notebook?.name ?? 'Default notebook'}</h2>
+            <p className="subtle">
+              {notebook ? 'Ask grounded questions over your sources.' : 'Loading notebook…'}
+            </p>
           </div>
           <div className="header-actions">
             <button type="button" className="secondary-action">Provider settings</button>
