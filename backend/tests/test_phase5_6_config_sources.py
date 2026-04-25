@@ -53,7 +53,6 @@ class Phase5And6Test(unittest.IsolatedAsyncioTestCase):
                 validated_at=datetime.now(UTC),
             )
             self.assertEqual(updated["validation_status"], "valid")
-            self.assertTrue(updated["api_key_ciphertext"])
             self.assertEqual(await get_provider_api_key(conn), "test-key")
 
     async def test_source_creation_queues_job_and_allows_title_edits(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from .db import (
     get_provider_api_key,
     get_provider_config,
     get_run,
+    get_source,
     initialize_database,
     list_runs,
     list_sources,
@@ -194,7 +196,7 @@ async def health(request: Request) -> dict[str, object]:
         "status": overall,
         "environment": settings.environment,
         "database": database,
-        "provider_configured": bool(settings.gemini_api_key.strip()),
+        "provider_configured": bool(database.get("provider_configured")),
     }
 
 
@@ -413,16 +415,20 @@ async def create_source_record(
     if notebook_id is None:
         raise HTTPException(status_code=409, detail="Default notebook is not available")
 
+    fallback_text = payload.content_text.strip() if payload.content_text is not None else None
     if payload.content_base64:
-        raw_bytes = base64.b64decode(payload.content_base64)
+        try:
+            raw_bytes = base64.b64decode(payload.content_base64, validate=True)
+        except (ValueError, binascii.Error):
+            raise HTTPException(status_code=400, detail="content_base64 must be valid base64")
         input_kind = "upload"
-    elif payload.content_text is not None:
-        raw_bytes = payload.content_text.encode("utf-8")
-        input_kind = "text"
     elif payload.source_url:
-        raw_text = payload.content_text if payload.content_text is not None else payload.source_url
+        raw_text = fallback_text or payload.source_url
         raw_bytes = raw_text.encode("utf-8")
         input_kind = "url"
+    elif fallback_text:
+        raw_bytes = fallback_text.encode("utf-8")
+        input_kind = "text"
     else:
         raise HTTPException(status_code=400, detail="Source content is required")
 
@@ -437,7 +443,7 @@ async def create_source_record(
         "original_name": payload.original_name,
         "mime_type": payload.mime_type,
         "source_url": payload.source_url,
-        "has_fallback_text": bool(payload.content_text and payload.source_url),
+        "has_fallback_text": bool(fallback_text and payload.source_url),
     }
 
     async with pool.acquire() as conn:
@@ -463,9 +469,9 @@ async def update_source_record(
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         source = await update_source_title(conn, source_id, payload.title)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return source
+        if source is None:
+            raise HTTPException(status_code=404, detail="Source not found")
+        return await get_source(conn, source_id) or source
 
 
 @app.get("/runs")

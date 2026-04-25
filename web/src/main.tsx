@@ -1,4 +1,4 @@
-import { StrictMode, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { StrictMode, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
@@ -122,7 +122,7 @@ const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: 'runs', label: 'Runs', description: 'Inspect history and traces' },
 ];
 
-function statusLabel(status: string | null | undefined): string {
+export function statusLabel(status: string | null | undefined): string {
   switch (status) {
     case 'valid':
     case 'succeeded':
@@ -144,7 +144,7 @@ function statusLabel(status: string | null | undefined): string {
   }
 }
 
-function chipStatusFromLabel(label: string | null | undefined): RuntimeStatus {
+export function chipStatusFromLabel(label: string | null | undefined): RuntimeStatus {
   if (!label) {
     return 'checking';
   }
@@ -299,6 +299,8 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
   });
   const [selectedFileName, setSelectedFileName] = useState<string>('');
   const [fileNotice, setFileNotice] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const fileReadToken = useRef(0);
 
   useEffect(() => {
     if (open) {
@@ -313,6 +315,8 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
       });
       setSelectedFileName('');
       setFileNotice(null);
+      setLocalError(null);
+      fileReadToken.current += 1;
     }
   }, [open]);
 
@@ -331,6 +335,21 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
         className="modal-form"
         onSubmit={async (event) => {
           event.preventDefault();
+          setLocalError(null);
+          const hasPastedText = form.fallbackText.trim().length > 0;
+          const hasFileUpload = form.contentBase64.length > 0;
+          if (isUrl) {
+            if (!form.sourceUrl.trim()) {
+              setLocalError('Add a URL before saving.');
+              return;
+            }
+          } else if (requiresFile && !hasFileUpload && !hasPastedText) {
+            setLocalError('Add a file before saving.');
+            return;
+          } else if (!hasFileUpload && !hasPastedText) {
+            setLocalError('Paste text or upload a file before saving.');
+            return;
+          }
           await onSave(form);
         }}
       >
@@ -338,15 +357,19 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
           <span>Source type</span>
           <select
             value={form.sourceType}
-            onChange={(event) =>
+            onChange={(event) => {
               setForm((current) => ({
                 ...current,
                 sourceType: event.target.value as SourceFormState['sourceType'],
                 contentBase64: '',
                 originalName: '',
                 mimeType: '',
-              }))
-            }
+              }));
+              setSelectedFileName('');
+              setFileNotice(null);
+              setLocalError(null);
+              fileReadToken.current += 1;
+            }}
           >
             <option value="pdf">PDF upload</option>
             <option value="text">Text upload</option>
@@ -366,7 +389,7 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
         </label>
 
         {isUrl ? (
-          <>
+          <div key="url-fields">
             <label>
               <span>URL</span>
               <input
@@ -385,9 +408,9 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
                 placeholder="Paste the extracted text if the URL can’t be fetched cleanly."
               />
             </label>
-          </>
+          </div>
         ) : (
-          <>
+          <div key="upload-fields">
             <label>
               <span>{requiresFile ? 'PDF file' : 'Text or markdown file'}</span>
               <input
@@ -395,6 +418,8 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
                 accept={requiresFile ? '.pdf,application/pdf' : '.txt,.md,.markdown,text/plain,text/markdown'}
                 onChange={async (event) => {
                   const file = event.target.files?.[0];
+                  const readToken = fileReadToken.current + 1;
+                  fileReadToken.current = readToken;
                   if (!file) {
                     setSelectedFileName('');
                     setForm((current) => ({
@@ -407,14 +432,23 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
                   }
                   setSelectedFileName(file.name);
                   setFileNotice(null);
-                  const contentBase64 = await readFileAsBase64(file);
-                  setForm((current) => ({
-                    ...current,
-                    contentBase64,
-                    originalName: file.name,
-                    mimeType: file.type,
-                    sourceUrl: '',
-                  }));
+                  try {
+                    const contentBase64 = await readFileAsBase64(file);
+                    if (fileReadToken.current !== readToken) {
+                      return;
+                    }
+                    setForm((current) => ({
+                      ...current,
+                      contentBase64,
+                      originalName: file.name,
+                      mimeType: file.type,
+                      sourceUrl: '',
+                    }));
+                  } catch {
+                    if (fileReadToken.current === readToken) {
+                      setFileNotice('Unable to read the selected file.');
+                    }
+                  }
                 }}
                 required={requiresFile}
               />
@@ -431,10 +465,11 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
                 />
               </label>
             )}
-          </>
+          </div>
         )}
 
         {fileNotice && <p className="form-success">{fileNotice}</p>}
+        {localError && <p className="form-error">{localError}</p>}
         {error && <p className="form-error">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="secondary-action" onClick={onClose}>
@@ -558,6 +593,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [editingSourceTitle, setEditingSourceTitle] = useState('');
+  const [draftQuestion, setDraftQuestion] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
@@ -702,7 +738,14 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
               </button>
             </li>
             <li>
-              <button type="button" className="sidebar-link" onClick={() => setSourceModalOpen(true)}>
+              <button
+                type="button"
+                className="sidebar-link"
+                onClick={() => {
+                  setSourceError(null);
+                  setSourceModalOpen(true);
+                }}
+              >
                 <span>Add source</span>
                 <span>PDF, text, URL</span>
               </button>
@@ -740,13 +783,21 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             <button type="button" className="secondary-action" onClick={() => setProviderModalOpen(true)}>
               Provider settings
             </button>
-            <button type="button" className="primary-action" onClick={() => setSourceModalOpen(true)}>
+            <button
+              type="button"
+              className="primary-action"
+              onClick={() => {
+                setSourceError(null);
+                setSourceModalOpen(true);
+              }}
+            >
               Add source
             </button>
           </div>
         </header>
 
         {loadError && <div className="notice-banner">{loadError}</div>}
+        {sourceError && <div className="notice-banner">{sourceError}</div>}
 
         <section className="tab-strip" aria-label="Notebook tabs">
           {tabs.map((tab) => (
@@ -795,7 +846,14 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 <label htmlFor="question" className="panel-label">
                   Question
                 </label>
-                <textarea id="question" placeholder="Ask something grounded in this notebook..." rows={5} disabled={!providerReady} />
+                <textarea
+                  id="question"
+                  value={draftQuestion}
+                  onChange={(event) => setDraftQuestion(event.target.value)}
+                  placeholder="Ask something grounded in this notebook..."
+                  rows={5}
+                  disabled={!providerReady}
+                />
                 <div className="composer-actions">
                   <button type="button" className="secondary-action" disabled={!providerReady}>
                     Save draft
@@ -815,7 +873,14 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   <h3>Sources</h3>
                   <p>Flat list view for notebook inputs. Source additions are item-scoped and restart-safe.</p>
                 </div>
-                <button type="button" className="primary-action" onClick={() => setSourceModalOpen(true)}>
+                <button
+                  type="button"
+                  className="primary-action"
+                  onClick={() => {
+                    setSourceError(null);
+                    setSourceModalOpen(true);
+                  }}
+                >
                   Add source
                 </button>
               </div>
@@ -857,18 +922,23 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                                 type="button"
                                 className="secondary-action"
                                 onClick={async () => {
-                                  const response = await fetch(`${apiBaseUrl}/sources/${source.id}`, {
-                                    method: 'PATCH',
-                                    credentials: 'include',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ title: editingSourceTitle }),
-                                  });
-                                  if (!response.ok) {
-                                    const data = (await response.json()) as { detail?: string };
-                                    throw new Error(data.detail || 'Unable to update source title');
+                                  try {
+                                    const response = await fetch(`${apiBaseUrl}/sources/${source.id}`, {
+                                      method: 'PATCH',
+                                      credentials: 'include',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ title: editingSourceTitle }),
+                                    });
+                                    if (!response.ok) {
+                                      const data = (await response.json()) as { detail?: string };
+                                      throw new Error(data.detail || 'Unable to update source title');
+                                    }
+                                    setEditingSourceId(null);
+                                    setSourceError(null);
+                                    await refreshSources();
+                                  } catch (saveError) {
+                                    setSourceError(saveError instanceof Error ? saveError.message : 'Unable to update source title');
                                   }
-                                  setEditingSourceId(null);
-                                  await refreshSources();
                                 }}
                               >
                                 Save
@@ -1000,15 +1070,12 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             if (form.sourceType === 'url') {
               payload.source_url = form.sourceUrl;
               if (form.fallbackText.trim()) {
-                payload.content_text = form.fallbackText;
-              }
-            } else if (form.contentBase64) {
-              payload.content_base64 = form.contentBase64;
-              if (form.fallbackText.trim()) {
-                payload.content_text = form.fallbackText;
+                payload.content_text = form.fallbackText.trim();
               }
             } else if (form.fallbackText.trim()) {
-              payload.content_text = form.fallbackText;
+              payload.content_text = form.fallbackText.trim();
+            } else if (form.contentBase64) {
+              payload.content_base64 = form.contentBase64;
             }
 
             const response = await fetch(`${apiBaseUrl}/sources`, {
@@ -1035,7 +1102,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   );
 }
 
-function App() {
+export function App() {
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
   const [mode, setMode] = useState<AuthMode>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -1156,8 +1223,10 @@ function App() {
   return <Shell user={user} onLogout={logout} />;
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+if (import.meta.env.MODE !== 'test') {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
+from cryptography.fernet import Fernet, InvalidToken
 
 from .settings import get_settings
 
@@ -78,12 +79,20 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _secret_cipher() -> Fernet:
+    key_material = hashlib.sha256(settings.app_secret.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(key_material))
+
+
 def encode_secret(value: str) -> str:
-    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii")
+    return _secret_cipher().encrypt(value.encode("utf-8")).decode("ascii")
 
 
 def decode_secret(value: str) -> str:
-    return base64.urlsafe_b64decode(value.encode("ascii")).decode("utf-8")
+    try:
+        return _secret_cipher().decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError, UnicodeError) as exc:
+        raise ValueError("Invalid encrypted secret") from exc
 
 
 def validate_gemini_api_key(api_key: str, *, timeout: float = 10.0) -> tuple[bool, str | None]:
@@ -119,6 +128,15 @@ async def create_pool() -> asyncpg.Pool:
 
 async def ensure_storage_dir() -> None:
     DEFAULT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def normalize_json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
 
 
 def store_source_payload(*, source_type: str, data: bytes, original_name: str | None = None) -> dict[str, str]:
@@ -384,7 +402,10 @@ async def get_provider_api_key(conn: asyncpg.Connection) -> str | None:
     ciphertext = row.get("api_key_ciphertext")
     if not ciphertext:
         return None
-    return decode_secret(ciphertext)
+    try:
+        return decode_secret(ciphertext)
+    except ValueError:
+        return None
 
 
 async def update_provider_config(
@@ -511,6 +532,7 @@ async def list_sources(conn: asyncpg.Connection) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for row in rows:
         data = dict(row)
+        data["metadata"] = normalize_json_value(data.get("metadata"))
         data["status"] = data.get("job_status") or "untracked"
         items.append(data)
     return items
@@ -579,6 +601,7 @@ async def get_source(conn: asyncpg.Connection, source_id: int) -> dict[str, Any]
     if not rows:
         return None
     data = dict(rows[0])
+    data["metadata"] = normalize_json_value(data.get("metadata"))
     data["status"] = data.get("job_status") or "untracked"
     return data
 
