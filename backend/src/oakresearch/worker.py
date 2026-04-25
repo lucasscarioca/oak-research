@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 import asyncpg
 from fastapi import FastAPI, Request
 
 from .db import create_pool, get_bootstrap_state, initialize_database
+from .ingestion import process_next_source_job_once
 from .settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,20 @@ async def check_worker_database(request: Request) -> dict[str, Any]:
     }
 
 
+async def ingestion_loop(app: FastAPI) -> None:
+    pool: asyncpg.Pool = app.state.pool
+    while True:
+        try:
+            processed = await process_next_source_job_once(pool)
+            if processed is None:
+                await asyncio.sleep(2.0)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # pragma: no cover - resilient background worker loop
+            logger.exception("Unhandled ingestion worker failure")
+            await asyncio.sleep(2.0)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting OakResearch worker in %s", settings.environment)
@@ -37,9 +53,15 @@ async def lifespan(app: FastAPI):
     app.state.pool = pool
     async with pool.acquire() as conn:
         app.state.bootstrap_state = await initialize_database(conn)
-    yield
-    await pool.close()
-    logger.info("Shutting down OakResearch worker")
+    worker_task = asyncio.create_task(ingestion_loop(app))
+    try:
+        yield
+    finally:
+        worker_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker_task
+        await pool.close()
+        logger.info("Shutting down OakResearch worker")
 
 
 app = FastAPI(title="OakResearch Worker", lifespan=lifespan)

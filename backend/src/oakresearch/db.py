@@ -538,6 +538,27 @@ async def list_sources(conn: asyncpg.Connection) -> list[dict[str, Any]]:
     return items
 
 
+async def queue_source_job(conn: asyncpg.Connection, source_id: int) -> dict[str, Any]:
+    async with conn.transaction():
+        job = await conn.fetchrow(
+            """
+            INSERT INTO source_jobs (source_id, status, step_label)
+            VALUES ($1, 'queued', 'queued-for-ingestion')
+            RETURNING *
+            """,
+            source_id,
+        )
+        assert job is not None
+        await conn.execute(
+            """
+            INSERT INTO source_job_items (job_id, item_index, status, step_label)
+            VALUES ($1, 0, 'queued', 'queued-for-ingestion')
+            """,
+            job["id"],
+        )
+    return dict(job)
+
+
 async def create_source(conn: asyncpg.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     async with conn.transaction():
         row = await conn.fetchrow(
@@ -555,23 +576,147 @@ async def create_source(conn: asyncpg.Connection, payload: dict[str, Any]) -> di
         )
         assert row is not None
 
-        job = await conn.fetchrow(
-            """
-            INSERT INTO source_jobs (source_id, status, step_label)
-            VALUES ($1, 'queued', 'queued-for-ingestion')
+    await queue_source_job(conn, int(row["id"]))
+    return await get_source(conn, row["id"])
+
+
+async def claim_next_source_job(conn: asyncpg.Connection) -> dict[str, Any] | None:
+    row = await conn.fetchrow(
+        """
+        WITH next_job AS (
+            SELECT id
+            FROM source_jobs
+            WHERE status = 'queued'
+            ORDER BY created_at ASC, id ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        ), claimed AS (
+            UPDATE source_jobs
+            SET status = 'running',
+                step_label = 'processing-source',
+                started_at = COALESCE(started_at, now()),
+                updated_at = now()
+            WHERE id IN (SELECT id FROM next_job)
             RETURNING *
-            """,
-            row["id"],
         )
-        assert job is not None
+        SELECT * FROM claimed
+        """
+    )
+    if row is None:
+        return None
+
+    await conn.execute(
+        """
+        UPDATE source_job_items
+        SET status = 'running',
+            step_label = 'processing-source',
+            started_at = COALESCE(started_at, now()),
+            updated_at = now()
+        WHERE job_id = $1
+        """,
+        row["id"],
+    )
+    return dict(row)
+
+
+async def update_source_job_step(conn: asyncpg.Connection, job_id: int, step_label: str) -> None:
+    await conn.execute(
+        """
+        UPDATE source_jobs
+        SET step_label = $2,
+            updated_at = now()
+        WHERE id = $1
+        """,
+        job_id,
+        step_label,
+    )
+    await conn.execute(
+        """
+        UPDATE source_job_items
+        SET step_label = $2,
+            updated_at = now()
+        WHERE job_id = $1
+        """,
+        job_id,
+        step_label,
+    )
+
+
+async def complete_source_job(
+    conn: asyncpg.Connection,
+    *,
+    job_id: int,
+    source_id: int,
+    chunks: list[dict[str, Any]],
+) -> None:
+    async with conn.transaction():
+        await conn.execute("DELETE FROM source_chunks WHERE source_id = $1", source_id)
+        for chunk in chunks:
+            await conn.execute(
+                """
+                INSERT INTO source_chunks (source_id, job_id, chunk_index, chunk_text, chunk_hash)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                source_id,
+                job_id,
+                chunk["chunk_index"],
+                chunk["chunk_text"],
+                chunk["chunk_hash"],
+            )
         await conn.execute(
             """
-            INSERT INTO source_job_items (job_id, item_index, status, step_label)
-            VALUES ($1, 0, 'queued', 'queued-for-ingestion')
+            UPDATE source_jobs
+            SET status = 'succeeded',
+                step_label = 'ingestion-complete',
+                finished_at = now(),
+                updated_at = now(),
+                error_message = NULL
+            WHERE id = $1
             """,
-            job["id"],
+            job_id,
         )
-    return await get_source(conn, row["id"])
+        await conn.execute(
+            """
+            UPDATE source_job_items
+            SET status = 'succeeded',
+                step_label = 'ingestion-complete',
+                finished_at = now(),
+                updated_at = now(),
+                error_message = NULL
+            WHERE job_id = $1
+            """,
+            job_id,
+        )
+
+
+async def fail_source_job(conn: asyncpg.Connection, *, job_id: int, error_message: str) -> None:
+    async with conn.transaction():
+        await conn.execute(
+            """
+            UPDATE source_jobs
+            SET status = 'failed',
+                step_label = 'ingestion-failed',
+                error_message = $2,
+                finished_at = now(),
+                updated_at = now()
+            WHERE id = $1
+            """,
+            job_id,
+            error_message,
+        )
+        await conn.execute(
+            """
+            UPDATE source_job_items
+            SET status = 'failed',
+                step_label = 'ingestion-failed',
+                error_message = $2,
+                finished_at = now(),
+                updated_at = now()
+            WHERE job_id = $1
+            """,
+            job_id,
+            error_message,
+        )
 
 
 async def get_source(conn: asyncpg.Connection, source_id: int) -> dict[str, Any] | None:

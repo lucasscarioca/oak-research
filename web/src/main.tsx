@@ -591,6 +591,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
   const [sourceBusy, setSourceBusy] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const [retryingSourceId, setRetryingSourceId] = useState<number | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [editingSourceTitle, setEditingSourceTitle] = useState('');
   const [draftQuestion, setDraftQuestion] = useState('');
@@ -694,6 +695,39 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       cancelled = true;
     };
   }, [apiBaseUrl]);
+
+  useEffect(() => {
+    if (activeTab !== 'sources') {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function pollSources() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/sources`, { credentials: 'include' });
+        if (!response.ok) {
+          return;
+        }
+        const data = (await response.json()) as SourceItem[];
+        if (!cancelled) {
+          setSources(data);
+        }
+      } catch {
+        // Keep the last known source state visible.
+      }
+    }
+
+    void pollSources();
+    const interval = window.setInterval(() => {
+      void pollSources();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeTab, apiBaseUrl]);
 
   return (
     <div className="app-shell">
@@ -913,6 +947,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                           </div>
                           <p>{source.metadata.original_name ? `File: ${String(source.metadata.original_name)}` : source.payload_uri}</p>
                           <p className="subtle">{source.created_at}</p>
+                          {source.job_step_label && <p className="subtle">Step: {source.job_step_label}</p>}
                           {source.job_error_message && <p className="form-error">{source.job_error_message}</p>}
                         </div>
                         <div className="source-actions">
@@ -948,16 +983,46 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                               </button>
                             </>
                           ) : (
-                            <button
-                              type="button"
-                              className="secondary-action"
-                              onClick={() => {
-                                setEditingSourceId(source.id);
-                                setEditingSourceTitle(source.title);
-                              }}
-                            >
-                              Edit title
-                            </button>
+                            <>
+                              {sourceStatus === 'failed' && (
+                                <button
+                                  type="button"
+                                  className="secondary-action"
+                                  disabled={retryingSourceId === source.id}
+                                  onClick={async () => {
+                                    try {
+                                      setRetryingSourceId(source.id);
+                                      const response = await fetch(`${apiBaseUrl}/sources/${source.id}/retry`, {
+                                        method: 'POST',
+                                        credentials: 'include',
+                                      });
+                                      if (!response.ok) {
+                                        const data = (await response.json()) as { detail?: string };
+                                        throw new Error(data.detail || 'Unable to retry source');
+                                      }
+                                      setSourceError(null);
+                                      await refreshSources();
+                                    } catch (retryError) {
+                                      setSourceError(retryError instanceof Error ? retryError.message : 'Unable to retry source');
+                                    } finally {
+                                      setRetryingSourceId(null);
+                                    }
+                                  }}
+                                >
+                                  {retryingSourceId === source.id ? 'Retrying…' : 'Retry ingest'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="secondary-action"
+                                onClick={() => {
+                                  setEditingSourceId(source.id);
+                                  setEditingSourceTitle(source.title);
+                                }}
+                              >
+                                Edit title
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>

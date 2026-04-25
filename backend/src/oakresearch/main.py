@@ -28,6 +28,7 @@ from .db import (
     get_run,
     get_source,
     initialize_database,
+    queue_source_job,
     list_runs,
     list_sources,
     revoke_session,
@@ -471,6 +472,23 @@ async def update_source_record(
         source = await update_source_title(conn, source_id, payload.title)
         if source is None:
             raise HTTPException(status_code=404, detail="Source not found")
+        return await get_source(conn, source_id) or source
+
+
+@app.post("/sources/{source_id}/retry")
+async def retry_source_record(
+    request: Request,
+    source_id: int,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        source = await get_source(conn, source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Source not found")
+        if source.get("status") != "failed":
+            raise HTTPException(status_code=409, detail="Source is not failed")
+        await queue_source_job(conn, source_id)
         return await get_source(conn, source_id) or source
 
 

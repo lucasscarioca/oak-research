@@ -222,6 +222,23 @@ function installApiMock(state: ApiState) {
       return jsonResponse(responseRecord);
     }
 
+    if (url.pathname.startsWith('/sources/') && url.pathname.endsWith('/retry') && method === 'POST') {
+      const sourceId = Number(url.pathname.split('/')[2]);
+      const source = state.sources.find((item) => item.id === sourceId);
+      if (!source) {
+        return jsonResponse({ detail: 'Source not found' }, 404);
+      }
+      source.status = 'queued';
+      source.job_status = 'queued';
+      source.job_step_label = 'queued-for-ingestion';
+      source.job_error_message = null;
+      source.job_started_at = null;
+      source.job_finished_at = null;
+      source.latest_job_id = (source.latest_job_id ?? source.id) + 1;
+      source.updated_at = '2026-04-24T00:00:00Z';
+      return jsonResponse(source);
+    }
+
     if (url.pathname.startsWith('/sources/') && method === 'PATCH') {
       if (state.patchShouldFail) {
         return jsonResponse({ detail: 'Unable to update source title' }, 500);
@@ -435,5 +452,60 @@ describe('OakResearch shell', () => {
 
     await waitFor(() => expect(screen.getByText(/Unable to update source title/i)).toBeInTheDocument());
     expect(screen.getByDisplayValue('Renamed source')).toBeInTheDocument();
+  });
+
+  it('retries failed source ingestion from the sources tab', async () => {
+    const state: ApiState = {
+      providerConfig: {
+        provider_name: 'gemini',
+        validation_status: 'valid',
+        validated_at: '2026-04-24T00:00:00Z',
+        created_at: '2026-04-24T00:00:00Z',
+        updated_at: '2026-04-24T00:00:00Z',
+        api_key_present: true,
+        validation_message: null,
+      },
+      sources: [
+        {
+          id: 1,
+          notebook_id: 1,
+          source_type: 'url',
+          title: 'Broken URL source',
+          payload_uri: '/data/oakresearch/sources/1.txt',
+          payload_sha256: 'sha-1',
+          metadata: { input_kind: 'url', source_url: 'https://example.invalid/404' },
+          created_at: '2026-04-24T00:00:00Z',
+          updated_at: '2026-04-24T00:00:00Z',
+          latest_job_id: 1,
+          job_status: 'failed',
+          job_step_label: 'ingestion-failed',
+          job_error_message: 'Unable to fetch URL content from https://example.invalid/404',
+          job_started_at: '2026-04-24T00:00:00Z',
+          job_finished_at: '2026-04-24T00:00:00Z',
+          status: 'failed',
+        },
+      ],
+      healthStatus: 'ok',
+      workerStatus: 'ok',
+      defaultNotebook: DEFAULT_NOTEBOOK,
+      nextSourceId: 2,
+      patchShouldFail: false,
+    };
+    const fetchMock = installApiMock(state);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findByRole('button', { name: /Sources/i });
+    await user.click(screen.getByRole('button', { name: /Sources/i }));
+    await screen.findByText(/Broken URL source/i);
+
+    await user.click(screen.getByRole('button', { name: /Retry ingest/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/sources/1/retry'),
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    await waitFor(() => expect(state.sources[0]?.status).toBe('queued'));
+    await waitFor(() => expect(screen.getByText('Queued', { selector: '.badge.source-status' })).toBeInTheDocument());
   });
 });
