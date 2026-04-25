@@ -2,7 +2,7 @@
 
 Minimal self-hostable deep research notebook starter.
 
-> WIP: the app shell, owner auth, provider config, source ingestion, and grounded answering flow are in place; run history and diagnostics are being rounded out.
+> MVP loop is in place: owner auth, provider config, source ingestion, grounded answers, run history, and diagnostics all work in Docker Compose.
 
 ## Run
 ```bash
