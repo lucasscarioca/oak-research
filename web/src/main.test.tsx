@@ -676,7 +676,7 @@ describe('OakResearch shell', () => {
       runs: [],
       patchShouldFail: false,
     };
-    installApiMock(state);
+    const fetchMock = installApiMock(state);
     const user = userEvent.setup();
 
     render(<App />);
@@ -689,9 +689,20 @@ describe('OakResearch shell', () => {
 
     await waitFor(() => expect(screen.getByText(/OakResearch uses FastAPI and Postgres/i)).toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole('button', { name: '[1]' })).toBeInTheDocument());
+    const originalRunId = state.runs[0]?.id ?? 0;
 
     await user.click(screen.getByRole('button', { name: '[1]' }));
     await waitFor(() => expect(screen.getByText(/OakResearch overview/i, { selector: '.eyebrow' })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/Chunk for OakResearch overview/i)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Runs/i }));
+    await user.click(screen.getByRole('button', { name: /Rerun/i }));
+
+    const runCalls = fetchMock.mock.calls.filter(([input, init]) =>
+      String(input).includes('/runs') && (init?.method ?? 'GET') === 'POST',
+    );
+    const rerunPayload = JSON.parse(String(runCalls.at(-1)?.[1]?.body)) as Record<string, unknown>;
+    expect(rerunPayload.rerun_of_run_id).toBe(originalRunId);
+    await waitFor(() => expect(screen.getByText(new RegExp(`Rerun of #${originalRunId}`))).toBeInTheDocument());
   });
 });

@@ -722,15 +722,15 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     setSources(data);
   }
 
-  async function refreshRuns() {
+  async function refreshRuns(selectedRunOverride: number | null = selectedRunId) {
     const response = await fetch(`${apiBaseUrl}/runs`, { credentials: 'include' });
     if (!response.ok) {
       throw new Error('Unable to load runs');
     }
     const data = (await response.json()) as RunRecord[];
     setRuns(data);
-    if (selectedRunId !== null) {
-      const selected = data.find((run) => run.id === selectedRunId);
+    if (selectedRunOverride !== null) {
+      const selected = data.find((run) => run.id === selectedRunOverride);
       if (selected) {
         setSelectedRun(selected);
       }
@@ -798,7 +798,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     }
   }
 
-  async function submitQuestion(question: string) {
+  async function submitQuestion(question: string, rerunOfRunId: number | null = null) {
     const trimmed = question.trim();
     if (!trimmed) {
       setQuestionError('Ask a question before running the notebook.');
@@ -818,7 +818,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: trimmed }),
+        body: JSON.stringify({ question: trimmed, rerun_of_run_id: rerunOfRunId }),
       });
       const data = (await response.json()) as RunRecord & { detail?: string };
       if (!response.ok) {
@@ -828,7 +828,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       setSelectedRunId(data.id);
       setSelectedRun(data);
       setDraftQuestion('');
-      await refreshRuns();
+      await refreshRuns(data.id);
       await streamRun(data.id);
     } catch (error_) {
       setQuestionError(error_ instanceof Error ? error_.message : 'Unable to create run');
@@ -1372,6 +1372,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                             <span className="badge">{statusLabel(run.status)}</span>
                           </div>
                           <p>{run.step_label || 'queued-for-answering'}</p>
+                          {run.rerun_of_run_id && <p className="subtle">Rerun of #{run.rerun_of_run_id}</p>}
                           {run.answer?.answer_text ? (
                             <p className="subtle">{run.answer.answer_text.slice(0, 120)}</p>
                           ) : run.blocked_reason ? (
@@ -1391,6 +1392,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                           <p className="eyebrow">Run detail</p>
                           <h3>{selectedRun.question}</h3>
                           <p className="subtle">{selectedRun.step_label || 'queued-for-answering'}</p>
+                          {selectedRun.rerun_of_run_id && (
+                            <p className="subtle">Rerun of #{selectedRun.rerun_of_run_id}</p>
+                          )}
                         </div>
                         <div className="run-detail-actions">
                           <span className="badge">{statusLabel(selectedRun.status)}</span>
@@ -1398,9 +1402,8 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                             type="button"
                             className="secondary-action"
                             onClick={() => {
-                              setActiveTab('chat');
                               setDraftQuestion(selectedRun.question);
-                              void submitQuestion(selectedRun.question);
+                              void submitQuestion(selectedRun.question, selectedRun.id);
                             }}
                           >
                             Rerun
