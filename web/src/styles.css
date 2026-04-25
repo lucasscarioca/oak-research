@@ -614,11 +614,48 @@ button {
   gap: 1rem;
 }
 
+.diagnostics-panel {
+  display: grid;
+  gap: 1rem;
+}
+
 .runs-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 1rem;
+}
+
+.diagnostics-grid,
+.diagnostics-columns {
+  display: grid;
+  gap: 1rem;
+}
+
+.diagnostics-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagnostics-columns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.diagnostics-card {
+  display: grid;
+  gap: 0.65rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.diagnostic-job-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.9rem;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .runs-layout {
@@ -711,7 +748,9 @@ button {
 }
 
 @media (max-width: 900px) {
-  .runs-layout {
+  .runs-layout,
+  .diagnostics-grid,
+  .diagnostics-columns {
     grid-template-columns: 1fr;
   }
 }

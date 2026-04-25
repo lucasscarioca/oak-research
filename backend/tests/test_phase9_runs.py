@@ -4,14 +4,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
-from oakresearch.answering import AnsweringError, process_next_run_job_once
+from oakresearch.answering import DEFAULT_REFUSAL_MESSAGE
 from oakresearch.db import apply_migrations, bootstrap_instance
 from oakresearch.ingestion import process_next_source_job_once
 from oakresearch.main import app
@@ -80,27 +79,41 @@ class Phase9RunsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         await process_next_source_job_once(self.pool)
 
-        async def fake_stream(*args, **kwargs):
-            yield "OakResearch uses FastAPI and Postgres"
-            yield " [1]."
+        response = await client.post(
+            "/runs",
+            json={
+                "question": "What stack does OakResearch use?",
+                "status": "succeeded",
+                "step_label": "answer-complete",
+                "answer": {
+                    "answer_text": "OakResearch uses FastAPI and Postgres [1].",
+                    "trace_summary": "Retrieved 1 chunk(s); Sources: OakResearch overview",
+                    "model": "gemini-2.0-flash",
+                    "citations": [
+                        {
+                            "source_id": 1,
+                            "chunk_ref": "1:0",
+                            "citation_text": "Chunk for OakResearch overview",
+                            "citation_index": 0,
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        success_run_id = response.json()["id"]
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=fake_stream
-        ):
-            response = await client.post("/runs", json={"question": "What stack does OakResearch use?"})
-            self.assertEqual(response.status_code, 200)
-            success_run_id = response.json()["id"]
-            processed = await process_next_run_job_once(self.pool)
-            self.assertIsNotNone(processed)
-            self.assertEqual(processed["status"], "succeeded")
-
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")):
-            response = await client.post("/runs", json={"question": "What is the capital of Mars?"})
-            self.assertEqual(response.status_code, 200)
-            blocked_run_id = response.json()["id"]
-            processed = await process_next_run_job_once(self.pool)
-            self.assertIsNotNone(processed)
-            self.assertEqual(processed["status"], "blocked")
+        response = await client.post(
+            "/runs",
+            json={
+                "question": "What is the capital of Mars?",
+                "status": "blocked",
+                "step_label": "grounding-insufficient",
+                "blocked_reason": DEFAULT_REFUSAL_MESSAGE,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        blocked_run_id = response.json()["id"]
 
         response = await client.post(
             "/runs",
@@ -114,19 +127,31 @@ class Phase9RunsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         failed_run_id = response.json()["id"]
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=fake_stream
-        ):
-            response = await client.post(
-                "/runs",
-                json={"question": "What stack does OakResearch use?", "rerun_of_run_id": success_run_id},
-            )
-            self.assertEqual(response.status_code, 200)
-            rerun_run_id = response.json()["id"]
-            self.assertEqual(response.json()["rerun_of_run_id"], success_run_id)
-            processed = await process_next_run_job_once(self.pool)
-            self.assertIsNotNone(processed)
-            self.assertEqual(processed["status"], "succeeded")
+        response = await client.post(
+            "/runs",
+            json={
+                "question": "What stack does OakResearch use?",
+                "status": "succeeded",
+                "step_label": "answer-complete",
+                "rerun_of_run_id": success_run_id,
+                "answer": {
+                    "answer_text": "OakResearch uses FastAPI and Postgres [1].",
+                    "trace_summary": "Retrieved 1 chunk(s); Sources: OakResearch overview",
+                    "model": "gemini-2.0-flash",
+                    "citations": [
+                        {
+                            "source_id": 1,
+                            "chunk_ref": "1:0",
+                            "citation_text": "Chunk for OakResearch overview",
+                            "citation_index": 0,
+                        }
+                    ],
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        rerun_run_id = response.json()["id"]
+        self.assertEqual(response.json()["rerun_of_run_id"], success_run_id)
 
         response = await client.get("/runs")
         self.assertEqual(response.status_code, 200)

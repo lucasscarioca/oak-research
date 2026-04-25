@@ -2,7 +2,7 @@ import { StrictMode, type ReactNode, useEffect, useMemo, useRef, useState } from
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
-type TabId = 'chat' | 'sources' | 'runs';
+type TabId = 'chat' | 'sources' | 'runs' | 'diagnostics';
 type RuntimeStatus = 'checking' | 'healthy' | 'degraded' | 'offline';
 type AuthMode = 'loading' | 'onboarding' | 'login' | 'authenticated';
 
@@ -87,6 +87,32 @@ type RunAnswer = {
   citations: RunCitation[];
 };
 
+type DiagnosticsJob = {
+  job_kind: string;
+  entity_type: string;
+  job_id: number;
+  entity_id: number | null;
+  label: string;
+  status: string;
+  step_label: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+type DiagnosticsResponse = {
+  provider_config: ProviderConfig;
+  provider_test_result: {
+    status: string;
+    message: string | null;
+    validated_at: string | null;
+    api_key_present: boolean;
+  };
+  recent_jobs: DiagnosticsJob[];
+  recent_failures: DiagnosticsJob[];
+};
+
 type RunRecord = {
   id: number;
   notebook_id: number;
@@ -164,6 +190,7 @@ const tabs: Array<{ id: TabId; label: string; description: string }> = [
   { id: 'chat', label: 'Chat', description: 'Ask grounded questions' },
   { id: 'sources', label: 'Sources', description: 'Review notebook inputs' },
   { id: 'runs', label: 'Runs', description: 'Inspect history and traces' },
+  { id: 'diagnostics', label: 'Diagnostics', description: 'Operator view' },
 ];
 
 export function statusLabel(status: string | null | undefined): string {
@@ -698,6 +725,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [sourceDetailOpen, setSourceDetailOpen] = useState(false);
   const [sourceDetailLoading, setSourceDetailLoading] = useState(false);
   const [sourceDetailError, setSourceDetailError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsResponse | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
   const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
   const workerBaseUrl = useMemo(() => import.meta.env.VITE_WORKER_BASE_URL || 'http://localhost:8001', []);
@@ -711,6 +741,23 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     }
     const data = (await response.json()) as ProviderConfig;
     setProviderConfig(data);
+  }
+
+  async function refreshDiagnostics() {
+    setDiagnosticsLoading(true);
+    try {
+      const response = await fetch(`${apiBaseUrl}/diagnostics`, { credentials: 'include' });
+      if (!response.ok) {
+        throw new Error('Unable to load diagnostics');
+      }
+      const data = (await response.json()) as DiagnosticsResponse;
+      setDiagnostics(data);
+      setDiagnosticsError(null);
+    } catch (error_) {
+      setDiagnosticsError(error_ instanceof Error ? error_.message : 'Unable to load diagnostics');
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   }
 
   async function refreshSources() {
@@ -986,6 +1033,29 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   }, [activeTab, apiBaseUrl, selectedRunId]);
 
   useEffect(() => {
+    if (activeTab !== 'diagnostics') {
+      return undefined;
+    }
+
+    async function pollDiagnostics() {
+      try {
+        await refreshDiagnostics();
+      } catch {
+        // Keep the last known diagnostics visible.
+      }
+    }
+
+    void pollDiagnostics();
+    const interval = window.setInterval(() => {
+      void pollDiagnostics();
+    }, 10000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeTab, apiBaseUrl]);
+
+  useEffect(() => {
     if (selectedRunId === null) {
       return;
     }
@@ -1032,9 +1102,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           <div className="panel-label">Workspace</div>
           <ul className="sidebar-links">
             <li>
-              <button type="button" className="sidebar-link" onClick={() => setProviderModalOpen(true)}>
+              <button type="button" className="sidebar-link" onClick={() => setActiveTab('diagnostics')}>
                 <span>Diagnostics</span>
-                <span>Provider + health</span>
+                <span>Provider + jobs</span>
               </button>
             </li>
             <li>
@@ -1444,6 +1514,97 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                       <strong>Select a run</strong>
                       <p>Open a past attempt to inspect its answer and citations.</p>
                     </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'diagnostics' && (
+            <div className="panel diagnostics-panel">
+              <div className="runs-header">
+                <div>
+                  <h3>Diagnostics</h3>
+                  <p>Owner-only operator view for provider validation and queue health.</p>
+                </div>
+                <button type="button" className="secondary-action" onClick={() => void refreshDiagnostics()}>
+                  Refresh
+                </button>
+              </div>
+
+              {diagnosticsError && <div className="notice-banner">{diagnosticsError}</div>}
+
+              <div className="diagnostics-grid">
+                <div className="diagnostics-card">
+                  <span className="panel-label">Provider test result</span>
+                  {diagnosticsLoading && !diagnostics ? (
+                    <p>Loading diagnostics…</p>
+                  ) : diagnostics ? (
+                    <>
+                      <div className="status-chip">
+                        <span className={`status-dot ${chipStatusFromLabel(diagnostics.provider_test_result.status)}`} />
+                        <span>{statusLabel(diagnostics.provider_test_result.status)}</span>
+                      </div>
+                      <p className="subtle">{diagnostics.provider_test_result.message}</p>
+                      <p className="subtle">
+                        {diagnostics.provider_config.api_key_present ? 'API key present' : 'No API key saved'}
+                      </p>
+                      <p className="subtle">
+                        Validated: {diagnostics.provider_test_result.validated_at || 'never'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="subtle">Open diagnostics to inspect the provider state.</p>
+                  )}
+                </div>
+
+                <div className="diagnostics-card">
+                  <span className="panel-label">Runtime health</span>
+                  <StatusChip label="API" status={apiStatus} />
+                  <StatusChip label="Worker" status={workerStatus} />
+                  <StatusChip label="Database" status={databaseStatus} />
+                  <p className="subtle">Worker endpoint: {workerBaseUrl}</p>
+                </div>
+              </div>
+
+              <div className="diagnostics-columns">
+                <div className="diagnostics-card">
+                  <span className="panel-label">Recent jobs</span>
+                  {diagnostics?.recent_jobs?.length ? (
+                    diagnostics.recent_jobs.map((job) => (
+                      <article key={`${job.job_kind}-${job.job_id}`} className="diagnostic-job-card">
+                        <div className="run-row-head">
+                          <strong>{job.label}</strong>
+                          <span className="badge">{statusLabel(job.status)}</span>
+                        </div>
+                        <p>{job.job_kind} · {job.entity_type} #{job.entity_id ?? '—'}</p>
+                        <p className="subtle">{job.step_label || 'queued'}</p>
+                        <p className="subtle">Created: {job.created_at}</p>
+                        {job.error_message && <p className="form-error">{job.error_message}</p>}
+                      </article>
+                    ))
+                  ) : (
+                    <p className="subtle">No recent jobs yet.</p>
+                  )}
+                </div>
+
+                <div className="diagnostics-card">
+                  <span className="panel-label">Recent failures</span>
+                  {diagnostics?.recent_failures?.length ? (
+                    diagnostics.recent_failures.map((job) => (
+                      <article key={`failure-${job.job_kind}-${job.job_id}`} className="diagnostic-job-card">
+                        <div className="run-row-head">
+                          <strong>{job.label}</strong>
+                          <span className="badge">{statusLabel(job.status)}</span>
+                        </div>
+                        <p>{job.job_kind} · {job.entity_type} #{job.entity_id ?? '—'}</p>
+                        <p className="subtle">{job.step_label || 'failed'}</p>
+                        <p className="subtle">Created: {job.created_at}</p>
+                        {job.error_message && <p className="form-error">{job.error_message}</p>}
+                      </article>
+                    ))
+                  ) : (
+                    <p className="subtle">No recent failures visible.</p>
                   )}
                 </div>
               </div>

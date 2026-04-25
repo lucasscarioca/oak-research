@@ -31,6 +31,8 @@ from .db import (
     get_run,
     get_source,
     initialize_database,
+    list_recent_failures,
+    list_recent_jobs,
     queue_source_job,
     list_runs,
     list_sources,
@@ -381,6 +383,44 @@ async def bootstrap_status(request: Request, _: dict[str, Any] = Depends(require
     state["owner"] = serialize_user(state.get("owner"))
     state["provider_config"] = serialize_provider_config(state.get("provider_config"))
     return state
+
+
+@app.get("/diagnostics")
+async def diagnostics(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        provider_config = await get_provider_config(conn)
+        recent_jobs = await list_recent_jobs(conn)
+        recent_failures = await list_recent_failures(conn)
+
+    serialized_config = serialize_provider_config(provider_config) or {
+        "provider_name": "gemini",
+        "validation_status": "unknown",
+        "validated_at": None,
+        "created_at": None,
+        "updated_at": None,
+        "api_key_present": False,
+    }
+    api_key_present = bool(serialized_config.get("api_key_present"))
+    validation_status = str(serialized_config.get("validation_status") or "unknown")
+    if validation_status == "valid":
+        validation_message = "Saved key is validated"
+    elif api_key_present:
+        validation_message = "Saved key needs attention"
+    else:
+        validation_message = "No API key configured"
+
+    return {
+        "provider_config": serialized_config,
+        "provider_test_result": {
+            "status": validation_status,
+            "message": validation_message,
+            "validated_at": serialized_config.get("validated_at"),
+            "api_key_present": api_key_present,
+        },
+        "recent_jobs": recent_jobs,
+        "recent_failures": recent_failures,
+    }
 
 
 @app.get("/owner")

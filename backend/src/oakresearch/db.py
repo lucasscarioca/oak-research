@@ -1116,6 +1116,92 @@ async def list_runs(conn: asyncpg.Connection) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+async def list_recent_jobs(conn: asyncpg.Connection, *, limit: int = 10) -> list[dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT *
+        FROM (
+            SELECT
+                'source'::text AS job_kind,
+                'source'::text AS entity_type,
+                sj.id AS job_id,
+                sj.source_id AS entity_id,
+                s.title AS label,
+                sj.status,
+                sj.step_label,
+                sj.error_message,
+                sj.created_at,
+                sj.started_at,
+                sj.finished_at
+            FROM source_jobs sj
+            JOIN sources s ON s.id = sj.source_id
+            UNION ALL
+            SELECT
+                'run'::text AS job_kind,
+                'run'::text AS entity_type,
+                r.id AS job_id,
+                r.id AS entity_id,
+                r.question AS label,
+                r.status,
+                r.step_label,
+                r.error_message,
+                r.created_at,
+                r.started_at,
+                r.finished_at
+            FROM runs r
+        ) items
+        ORDER BY created_at DESC, job_id DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
+async def list_recent_failures(conn: asyncpg.Connection, *, limit: int = 10) -> list[dict[str, Any]]:
+    rows = await conn.fetch(
+        """
+        SELECT *
+        FROM (
+            SELECT
+                'source'::text AS job_kind,
+                'source'::text AS entity_type,
+                sj.id AS job_id,
+                sj.source_id AS entity_id,
+                s.title AS label,
+                sj.status,
+                sj.step_label,
+                sj.error_message,
+                sj.created_at,
+                sj.started_at,
+                sj.finished_at
+            FROM source_jobs sj
+            JOIN sources s ON s.id = sj.source_id
+            WHERE sj.status = 'failed'
+            UNION ALL
+            SELECT
+                'run'::text AS job_kind,
+                'run'::text AS entity_type,
+                r.id AS job_id,
+                r.id AS entity_id,
+                r.question AS label,
+                r.status,
+                r.step_label,
+                r.error_message,
+                r.created_at,
+                r.started_at,
+                r.finished_at
+            FROM runs r
+            WHERE r.status IN ('failed', 'blocked')
+        ) items
+        ORDER BY created_at DESC, job_id DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [dict(row) for row in rows]
+
+
 async def create_run(conn: asyncpg.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     async with conn.transaction():
         run = await conn.fetchrow(

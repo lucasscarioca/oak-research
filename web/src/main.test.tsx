@@ -195,6 +195,82 @@ function installApiMock(state: ApiState) {
       return jsonResponse(state.providerConfig);
     }
 
+    if (url.pathname === '/diagnostics' && method === 'GET') {
+      return jsonResponse({
+        provider_config: state.providerConfig,
+        provider_test_result: {
+          status: state.providerConfig.validation_status,
+          message: state.providerConfig.validation_status === 'valid'
+            ? 'Saved key is validated'
+            : state.providerConfig.api_key_present
+              ? 'Saved key needs attention'
+              : 'No API key configured',
+          validated_at: state.providerConfig.validated_at,
+          api_key_present: state.providerConfig.api_key_present,
+        },
+        recent_jobs: [
+          ...state.sources.slice(0, 2).map((source) => ({
+            job_kind: 'source',
+            entity_type: 'source',
+            job_id: source.latest_job_id ?? source.id,
+            entity_id: source.id,
+            label: source.title,
+            status: source.status,
+            step_label: source.job_step_label,
+            error_message: source.job_error_message,
+            created_at: source.created_at,
+            started_at: source.job_started_at,
+            finished_at: source.job_finished_at,
+          })),
+          ...state.runs.slice(0, 2).map((run) => ({
+            job_kind: 'run-question',
+            entity_type: 'run',
+            job_id: run.id,
+            entity_id: run.id,
+            label: run.question,
+            status: run.status,
+            step_label: run.step_label,
+            error_message: run.error_message,
+            created_at: run.created_at,
+            started_at: run.started_at,
+            finished_at: run.finished_at,
+          })),
+        ],
+        recent_failures: [
+          ...state.sources
+            .filter((source) => source.status === 'failed')
+            .map((source) => ({
+              job_kind: 'source',
+              entity_type: 'source',
+              job_id: source.latest_job_id ?? source.id,
+              entity_id: source.id,
+              label: source.title,
+              status: source.status,
+              step_label: source.job_step_label,
+              error_message: source.job_error_message,
+              created_at: source.created_at,
+              started_at: source.job_started_at,
+              finished_at: source.job_finished_at,
+            })),
+          ...state.runs
+            .filter((run) => run.status === 'failed' || run.status === 'blocked')
+            .map((run) => ({
+              job_kind: 'run-question',
+              entity_type: 'run',
+              job_id: run.id,
+              entity_id: run.id,
+              label: run.question,
+              status: run.status,
+              step_label: run.step_label,
+              error_message: run.error_message,
+              created_at: run.created_at,
+              started_at: run.started_at,
+              finished_at: run.finished_at,
+            })),
+        ],
+      });
+    }
+
     if (url.pathname === '/sources' && method === 'GET') {
       return jsonResponse(state.sources);
     }
@@ -703,6 +779,97 @@ describe('OakResearch shell', () => {
     );
     const rerunPayload = JSON.parse(String(runCalls.at(-1)?.[1]?.body)) as Record<string, unknown>;
     expect(rerunPayload.rerun_of_run_id).toBe(originalRunId);
-    await waitFor(() => expect(screen.getByText(new RegExp(`Rerun of #${originalRunId}`))).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(new RegExp(`Rerun of #${originalRunId}`)).length).toBeGreaterThan(0));
+  });
+
+  it('shows diagnostics for provider health and recent jobs', async () => {
+    const state: ApiState = {
+      providerConfig: {
+        provider_name: 'gemini',
+        validation_status: 'valid',
+        validated_at: '2026-04-24T00:00:00Z',
+        created_at: '2026-04-24T00:00:00Z',
+        updated_at: '2026-04-24T00:00:00Z',
+        api_key_present: true,
+        validation_message: null,
+      },
+      sources: [
+        {
+          id: 1,
+          notebook_id: 1,
+          source_type: 'text',
+          title: 'OakResearch overview',
+          payload_uri: '/data/oakresearch/sources/1.txt',
+          payload_sha256: 'sha-1',
+          metadata: { input_kind: 'text' },
+          created_at: '2026-04-24T00:00:00Z',
+          updated_at: '2026-04-24T00:00:00Z',
+          latest_job_id: 11,
+          job_status: 'succeeded',
+          job_step_label: 'ingestion-complete',
+          job_error_message: null,
+          job_started_at: '2026-04-24T00:00:00Z',
+          job_finished_at: '2026-04-24T00:00:00Z',
+          status: 'succeeded',
+        },
+        {
+          id: 2,
+          notebook_id: 1,
+          source_type: 'url',
+          title: 'Broken URL source',
+          payload_uri: '/data/oakresearch/sources/2.txt',
+          payload_sha256: 'sha-2',
+          metadata: { input_kind: 'url' },
+          created_at: '2026-04-24T01:00:00Z',
+          updated_at: '2026-04-24T01:00:00Z',
+          latest_job_id: 12,
+          job_status: 'failed',
+          job_step_label: 'ingestion-failed',
+          job_error_message: 'Unable to fetch URL content from https://example.invalid/404',
+          job_started_at: '2026-04-24T01:00:00Z',
+          job_finished_at: '2026-04-24T01:00:00Z',
+          status: 'failed',
+        },
+      ],
+      healthStatus: 'ok',
+      workerStatus: 'ok',
+      defaultNotebook: DEFAULT_NOTEBOOK,
+      nextSourceId: 3,
+      nextRunId: 3,
+      runs: [
+        {
+          id: 1,
+          notebook_id: 1,
+          question: 'What stack does OakResearch use?',
+          status: 'blocked',
+          step_label: 'grounding-insufficient',
+          blocked_reason: 'Insufficient grounding in notebook sources',
+          error_message: null,
+          rerun_of_run_id: null,
+          created_at: '2026-04-24T01:30:00Z',
+          started_at: '2026-04-24T01:30:00Z',
+          finished_at: '2026-04-24T01:30:00Z',
+        },
+      ],
+      patchShouldFail: false,
+    };
+    const fetchMock = installApiMock(state);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await screen.findAllByRole('button', { name: /Diagnostics/i });
+    await user.click(screen.getAllByRole('button', { name: /Diagnostics/i })[0]);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/diagnostics'),
+      expect.objectContaining({ credentials: 'include' }),
+    ));
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Diagnostics/i })).toBeInTheDocument());
+    expect(screen.getByText(/Saved key is validated/i)).toBeInTheDocument();
+    expect(screen.getByText(/Runtime health/i)).toBeInTheDocument();
+    expect(screen.getByText(/Recent jobs/i)).toBeInTheDocument();
+    expect(screen.getByText(/Recent failures/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Broken URL source/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/What stack does OakResearch use\?/i).length).toBeGreaterThan(0);
   });
 });
