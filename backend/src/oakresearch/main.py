@@ -156,8 +156,9 @@ async def check_database(request: Request) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - surfaced in health response
         return {"status": "degraded", "detail": str(exc)}
 
-    provider_config = state.get("provider_config")
-    provider_configured = bool(provider_config and provider_config.get("validation_status") == "valid")
+    provider_configured = False
+    async with pool.acquire() as conn:
+        provider_configured = bool(await get_provider_api_key(conn))
     return {
         "status": "ok",
         "bootstrap_complete": state["bootstrap_complete"],
@@ -403,10 +404,13 @@ async def diagnostics(request: Request, _: dict[str, Any] = Depends(require_auth
     }
     api_key_present = bool(serialized_config.get("api_key_present"))
     validation_status = str(serialized_config.get("validation_status") or "unknown")
-    if validation_status == "valid":
+    async with pool.acquire() as conn:
+        api_key_usable = bool(await get_provider_api_key(conn))
+    if validation_status == "valid" and api_key_usable:
         validation_message = "Saved key is validated"
     elif api_key_present:
         validation_message = "Saved key needs attention"
+        validation_status = "invalid"
     else:
         validation_message = "No API key configured"
 
@@ -623,24 +627,23 @@ async def create_run_record(
     run_payload: dict[str, Any] = {
         "notebook_id": notebook_id,
         "question": payload.question,
-        "status": payload.status,
-        "step_label": payload.step_label,
-        "blocked_reason": payload.blocked_reason,
-        "error_message": payload.error_message,
         "rerun_of_run_id": payload.rerun_of_run_id,
-        "started_at": payload.started_at,
-        "finished_at": payload.finished_at,
     }
-    if payload.answer is not None:
-        run_payload["answer"] = {
-            "answer_text": payload.answer.answer_text,
-            "trace_summary": payload.answer.trace_summary,
-            "model": payload.answer.model,
-            "citations": [citation.model_dump() for citation in payload.answer.citations],
-        }
 
     async with pool.acquire() as conn:
         provider_config = await get_provider_config(conn)
-        if payload.answer is None and (provider_config is None or provider_config.get("validation_status") != "valid"):
-            raise HTTPException(status_code=409, detail="Gemini provider configuration is not ready")
+        provider_api_key = await get_provider_api_key(conn)
+        provider_ready = bool(
+            provider_config is not None
+            and provider_config.get("validation_status") == "valid"
+            and provider_api_key
+        )
+        if not provider_ready:
+            run_payload.update(
+                {
+                    "status": "blocked",
+                    "step_label": "provider-not-ready",
+                    "blocked_reason": "Gemini provider configuration is not ready",
+                }
+            )
         return await create_run(conn, run_payload)

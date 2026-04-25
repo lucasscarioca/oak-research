@@ -381,70 +381,76 @@ async def process_next_run_job_once(pool: asyncpg.Pool) -> dict[str, Any] | None
             await mark_run_job_failed(conn, int(job["id"]), "Run no longer exists")
             return {"job_id": job["id"], "status": "failed"}
 
-        provider_api_key = await get_provider_api_key(conn)
-        if not provider_api_key:
-            await mark_run_blocked(
+        try:
+            provider_api_key = await get_provider_api_key(conn)
+            if not provider_api_key:
+                await mark_run_blocked(
+                    conn,
+                    run_id=int(run["id"]),
+                    blocked_reason="Gemini provider key is not configured",
+                )
+                await mark_run_job_failed(conn, int(job["id"]), "Gemini provider key is not configured")
+                return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
+
+            await mark_run_running(conn, run_id=int(run["id"]), step_label="retrieving-relevant-chunks")
+            await mark_run_job_running(conn, int(job["id"]), step_label="retrieving-relevant-chunks")
+            chunks = await retrieve_relevant_chunks(
+                conn,
+                notebook_id=int(run["notebook_id"]),
+                question=str(run["question"]),
+                provider_api_key=provider_api_key,
+            )
+
+            if _grounding_strength(chunks) < 0.15:
+                refusal = DEFAULT_REFUSAL_MESSAGE
+                await append_run_event(conn, int(run["id"]), event_type="status", event_text="blocked")
+                await complete_run(
+                    conn,
+                    run_id=int(run["id"]),
+                    status="blocked",
+                    step_label="grounding-insufficient",
+                    blocked_reason="Insufficient grounding in notebook sources",
+                    answer_text=refusal,
+                    trace_summary="Grounding was insufficient; refused to answer.",
+                    model=settings.gemini_model,
+                    citations=[],
+                )
+                await mark_run_job_succeeded(conn, int(job["id"]), step_label="grounding-insufficient")
+                return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
+
+            await mark_run_running(conn, run_id=int(run["id"]), step_label="generating-answer")
+            await mark_run_job_running(conn, int(job["id"]), step_label="generating-answer")
+
+            async def _on_token(token: str) -> None:
+                await asyncio.sleep(0)
+
+            answer = await generate_grounded_answer(
                 conn,
                 run_id=int(run["id"]),
-                blocked_reason="Gemini provider key is not configured",
+                question=str(run["question"]),
+                chunks=chunks,
+                provider_api_key=provider_api_key,
+                on_token=_on_token,
             )
-            await mark_run_job_failed(conn, int(job["id"]), "Gemini provider key is not configured")
-            return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
-
-        await mark_run_running(conn, run_id=int(run["id"]), step_label="retrieving-relevant-chunks")
-        await mark_run_job_running(conn, int(job["id"]), step_label="retrieving-relevant-chunks")
-        chunks = await retrieve_relevant_chunks(
-            conn,
-            notebook_id=int(run["notebook_id"]),
-            question=str(run["question"]),
-            provider_api_key=provider_api_key,
-        )
-
-        if _grounding_strength(chunks) < 0.15:
-            refusal = DEFAULT_REFUSAL_MESSAGE
-            await append_run_event(conn, int(run["id"]), event_type="status", event_text="blocked")
             await complete_run(
                 conn,
                 run_id=int(run["id"]),
-                status="blocked",
-                step_label="grounding-insufficient",
-                blocked_reason="Insufficient grounding in notebook sources",
-                answer_text=refusal,
-                trace_summary="Grounding was insufficient; refused to answer.",
+                status="succeeded" if not answer["refused"] else "blocked",
+                step_label="answer-complete" if not answer["refused"] else "grounding-insufficient",
+                blocked_reason=None if not answer["refused"] else "Insufficient grounding in notebook sources",
+                answer_text=answer["answer_text"],
+                trace_summary=answer["trace_summary"],
                 model=settings.gemini_model,
-                citations=[],
+                citations=answer["citations"],
             )
-            await mark_run_job_succeeded(conn, int(job["id"]), step_label="grounding-insufficient")
-            return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
-
-        await mark_run_running(conn, run_id=int(run["id"]), step_label="generating-answer")
-        await mark_run_job_running(conn, int(job["id"]), step_label="generating-answer")
-
-        async def _on_token(token: str) -> None:
-            await asyncio.sleep(0)
-
-        answer = await generate_grounded_answer(
-            conn,
-            run_id=int(run["id"]),
-            question=str(run["question"]),
-            chunks=chunks,
-            provider_api_key=provider_api_key,
-            on_token=_on_token,
-        )
-        await complete_run(
-            conn,
-            run_id=int(run["id"]),
-            status="succeeded" if not answer["refused"] else "blocked",
-            step_label="answer-complete" if not answer["refused"] else "grounding-insufficient",
-            blocked_reason=None if not answer["refused"] else "Insufficient grounding in notebook sources",
-            answer_text=answer["answer_text"],
-            trace_summary=answer["trace_summary"],
-            model=settings.gemini_model,
-            citations=answer["citations"],
-        )
-        await mark_run_job_succeeded(conn, int(job["id"]), step_label="answer-complete")
-        return {
-            "job_id": job["id"],
-            "run_id": run["id"],
-            "status": "succeeded" if not answer["refused"] else "blocked",
-        }
+            await mark_run_job_succeeded(conn, int(job["id"]), step_label="answer-complete")
+            return {
+                "job_id": job["id"],
+                "run_id": run["id"],
+                "status": "succeeded" if not answer["refused"] else "blocked",
+            }
+        except Exception as exc:
+            logger.exception("Unhandled run worker failure")
+            await mark_run_failed(conn, run_id=int(run["id"]), error_message=str(exc))
+            await mark_run_job_failed(conn, int(job["id"]), str(exc))
+            return {"job_id": job["id"], "run_id": run["id"], "status": "failed", "error": str(exc)}

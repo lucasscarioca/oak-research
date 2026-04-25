@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 import unittest
@@ -78,12 +79,32 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "succeeded")
 
+        response = await client.post(
+            "/sources",
+            json={
+                "source_type": "text",
+                "title": "Uploaded text source",
+                "content_base64": base64.b64encode(b"uploaded paragraph\n\nmore uploaded text").decode("ascii"),
+                "original_name": "notes.txt",
+                "mime_type": "text/plain",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        uploaded = response.json()
+        self.assertEqual(uploaded["status"], "queued")
+        self.assertEqual(uploaded["metadata"]["input_kind"], "upload")
+
+        processed = await process_next_source_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "succeeded")
+
         response = await client.get("/sources")
         self.assertEqual(response.status_code, 200)
         sources = response.json()
         self.assertEqual(sources[0]["status"], "succeeded")
         self.assertEqual(sources[0]["job_status"], "succeeded")
         self.assertEqual(sources[0]["job_step_label"], "ingestion-complete")
+        self.assertEqual(sources[0]["metadata"]["original_name"], "notes.txt")
 
         async with self.pool.acquire() as conn:
             await conn.execute(f'SET search_path TO {self.schema_name}')
@@ -92,7 +113,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
                 sources[0]["id"],
             )
         self.assertGreaterEqual(len(chunks), 1)
-        self.assertIn("alpha paragraph", chunks[0]["chunk_text"])
+        self.assertIn("uploaded paragraph", chunks[0]["chunk_text"])
 
     async def test_broken_url_fails_and_can_be_retried(self) -> None:
         client = await self.create_authenticated_client()
@@ -120,6 +141,40 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         sources = response.json()
         self.assertEqual(sources[0]["status"], "failed")
         self.assertIn("Unable to fetch URL content", sources[0]["job_error_message"])
+
+        response = await client.post(f"/sources/{sources[0]['id']}/retry")
+        self.assertEqual(response.status_code, 200)
+        retried = response.json()
+        self.assertEqual(retried["status"], "queued")
+        self.assertEqual(retried["job_status"], "queued")
+
+        with patch("oakresearch.ingestion._fetch_url_text", return_value="Recovered article text"):
+            processed = await process_next_source_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "succeeded")
+
+        response = await client.post(
+            "/sources",
+            json={
+                "source_type": "url",
+                "title": "Local host blocked",
+                "source_url": "http://127.0.0.1:8000/health",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        localhost_source = response.json()
+        self.assertEqual(localhost_source["status"], "queued")
+
+        processed = await process_next_source_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "failed")
+        self.assertIn("not public", processed["error"])
+
+        response = await client.get("/sources")
+        self.assertEqual(response.status_code, 200)
+        sources = response.json()
+        self.assertEqual(sources[0]["status"], "failed")
+        self.assertIn("not public", sources[0]["job_error_message"])
 
         response = await client.post(f"/sources/{sources[0]['id']}/retry")
         self.assertEqual(response.status_code, 200)

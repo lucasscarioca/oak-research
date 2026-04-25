@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import html
+import ipaddress
 import re
+import socket
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import asyncpg
 import httpx
@@ -69,9 +72,50 @@ def _read_pdf_file(path: Path) -> str:
     return text
 
 
-async def _fetch_url_text(url: str) -> str:
+def _validate_public_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise IngestionError("URL must use http or https")
+    host = parsed.hostname
+    if not host:
+        raise IngestionError("URL is missing a host")
+
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_REQUEST_TIMEOUT, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+        host_ip = ipaddress.ip_address(host)
+    except ValueError:
+        host_ip = None
+
+    if host_ip is not None:
+        if not host_ip.is_global:
+            raise IngestionError(f"URL host {host} is not public")
+        return
+
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise IngestionError(f"Unable to resolve URL host {host}") from exc
+
+    resolved_addresses = {
+        info[4][0]
+        for info in infos
+        if info and info[4] and info[4][0]
+    }
+    if not resolved_addresses:
+        raise IngestionError(f"Unable to resolve URL host {host}")
+
+    for address in resolved_addresses:
+        try:
+            resolved_ip = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if not resolved_ip.is_global:
+            raise IngestionError(f"URL host {host} resolves to a non-public address")
+
+
+async def _fetch_url_text(url: str) -> str:
+    _validate_public_url(url)
+    try:
+        async with httpx.AsyncClient(timeout=DEFAULT_REQUEST_TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
             response = await client.get(url)
             response.raise_for_status()
     except Exception as exc:
@@ -95,7 +139,12 @@ async def extract_source_text(source: dict[str, Any]) -> tuple[str, str]:
     input_kind = str(metadata.get("input_kind") or source_type)
     payload_path = _payload_path(source)
 
-    if source_type == "pdf" or input_kind == "upload":
+    if source_type == "pdf":
+        return _read_pdf_file(payload_path), "parsed-pdf"
+
+    if input_kind == "upload":
+        if source_type in {"text", "markdown"}:
+            return _read_text_file(payload_path), "parsed-text"
         return _read_pdf_file(payload_path), "parsed-pdf"
 
     if input_kind == "url":

@@ -12,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
 from oakresearch.answering import AnsweringError, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance
+from oakresearch.db import apply_migrations, bootstrap_instance, mark_run_failed, mark_run_job_failed
 from oakresearch.ingestion import IngestionError, process_next_source_job_once
 from oakresearch.main import app
 
@@ -107,15 +107,18 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
 
         response = await client.post(
             "/runs",
-            json={
-                "question": "Worker crashed mid-run",
-                "status": "failed",
-                "step_label": "answer-failed",
-                "error_message": "Worker crashed",
-            },
+            json={"question": "Worker crashed mid-run"},
         )
         self.assertEqual(response.status_code, 200)
         failed_run_id = response.json()["id"]
+        async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
+            failed_job_id = await conn.fetchval(
+                "SELECT id FROM jobs WHERE entity_id = $1 AND kind = 'run-question' ORDER BY id DESC LIMIT 1",
+                failed_run_id,
+            )
+            await mark_run_failed(conn, run_id=failed_run_id, error_message="Worker crashed")
+            await mark_run_job_failed(conn, int(failed_job_id), "Worker crashed")
 
         response = await client.get("/diagnostics")
         self.assertEqual(response.status_code, 200)

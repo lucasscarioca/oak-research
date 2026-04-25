@@ -320,13 +320,27 @@ function ModalShell({
     return null;
   }
 
+  const titleId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
+  const descriptionId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-description`;
+
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
-      <div className="modal-card" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
+      <div
+        className="modal-card"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
         <div className="modal-header">
           <div>
-            <p className="eyebrow">{title}</p>
-            <p className="subtle">{description}</p>
+            <p className="eyebrow" id={titleId}>
+              {title}
+            </p>
+            <p className="subtle" id={descriptionId}>
+              {description}
+            </p>
           </div>
           <button type="button" className="secondary-action" onClick={onClose}>
             Close
@@ -381,6 +395,7 @@ function ProviderModal({
           <label>
             <span>Gemini API key</span>
             <input
+              type="password"
               value={form.apiKey}
               onChange={(event) => setForm({ apiKey: event.target.value })}
               placeholder="Paste your Gemini API key"
@@ -477,6 +492,8 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
               setForm((current) => ({
                 ...current,
                 sourceType: event.target.value as SourceFormState['sourceType'],
+                sourceUrl: '',
+                fallbackText: '',
                 contentBase64: '',
                 originalName: '',
                 mimeType: '',
@@ -840,6 +857,8 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       await refreshRuns();
     } catch (error_) {
       setQuestionError(error_ instanceof Error ? error_.message : 'Unable to stream answer');
+      await refreshRun(runId).catch(() => undefined);
+      await refreshRuns().catch(() => undefined);
     } finally {
       setStreamingRunId(null);
     }
@@ -851,11 +870,6 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       setQuestionError('Ask a question before running the notebook.');
       return;
     }
-    if (!providerReady) {
-      setQuestionError('Configure Gemini before asking questions.');
-      return;
-    }
-
     setQuestionBusy(true);
     setQuestionError(null);
     setCurrentQuestion(trimmed);
@@ -876,7 +890,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       setSelectedRun(data);
       setDraftQuestion('');
       await refreshRuns(data.id);
-      await streamRun(data.id);
+      if (data.status === 'queued') {
+        await streamRun(data.id);
+      }
     } catch (error_) {
       setQuestionError(error_ instanceof Error ? error_.message : 'Unable to create run');
     } finally {
@@ -1195,12 +1211,12 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   </p>
                 </div>
 
-                {!providerReady && (
+                {questionError && <div className="notice-banner">{questionError}</div>}
+                {!providerReady && !questionError && (
                   <div className="notice-banner">
-                    Gemini is not validated yet. Save and test a key before running questions.
+                    Gemini is not validated yet. Questions will be recorded as blocked until a key is saved.
                   </div>
                 )}
-                {questionError && <div className="notice-banner">{questionError}</div>}
 
                 {currentQuestion ? (
                   <>
@@ -1233,7 +1249,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                     <p>
                       {providerReady
                         ? 'Ask a grounded question to start a streamed answer run.'
-                        : 'Configure Gemini to unlock the answering flow.'}
+                        : 'Ask a question to create a blocked attempt until Gemini is validated.'}
                     </p>
                   </div>
                 )}
@@ -1257,13 +1273,13 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   onChange={(event) => setDraftQuestion(event.target.value)}
                   placeholder="Ask something grounded in this notebook..."
                   rows={5}
-                  disabled={!providerReady || questionBusy || streamingRunId !== null}
+                  disabled={questionBusy || streamingRunId !== null}
                 />
                 <div className="composer-actions">
-                  <button type="button" className="secondary-action" disabled={!providerReady || questionBusy} onClick={() => setDraftQuestion('')}>
+                  <button type="button" className="secondary-action" disabled={questionBusy} onClick={() => setDraftQuestion('')}>
                     Clear
                   </button>
-                  <button type="submit" className="primary-action" disabled={!providerReady || questionBusy || streamingRunId !== null}>
+                  <button type="submit" className="primary-action" disabled={questionBusy || streamingRunId !== null}>
                     {questionBusy || streamingRunId !== null ? 'Running…' : 'Run query'}
                   </button>
                 </div>
@@ -1852,10 +1868,14 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      await fetch(`${apiBaseUrl}/auth/logout`, {
+      const response = await fetch(`${apiBaseUrl}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail || 'Logout failed');
+      }
       setUser(null);
       setMode('login');
     } catch (submitError) {

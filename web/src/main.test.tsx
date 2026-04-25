@@ -110,20 +110,12 @@ class MockFileReader {
   onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
   result: string | ArrayBuffer | null = null;
 
-  readAsArrayBuffer(file: Blob) {
-    const fallbackBytes = new TextEncoder().encode('pdf bytes');
-    const fallbackBuffer = new window.ArrayBuffer(fallbackBytes.length);
-    new Uint8Array(fallbackBuffer).set(fallbackBytes);
-    void file
-      .arrayBuffer()
-      .then((buffer) => {
-        this.result = buffer;
-        this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>);
-      })
-      .catch(() => {
-        this.result = fallbackBuffer;
-        this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>);
-      });
+  readAsArrayBuffer(_file: Blob) {
+    const bytes = new TextEncoder().encode('file bytes');
+    const buffer = new window.ArrayBuffer(bytes.length);
+    new Uint8Array(buffer).set(bytes);
+    this.result = buffer;
+    this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>);
   }
 }
 
@@ -389,18 +381,19 @@ function installApiMock(state: ApiState) {
     if (url.pathname === '/runs' && method === 'POST') {
       const body = parseJsonBody(init);
       const question = String(body.question ?? 'What does the notebook contain?');
+      const providerReady = state.providerConfig.validation_status === 'valid';
       const run: RunRecord = {
         id: state.nextRunId,
         notebook_id: state.defaultNotebook.id,
         question,
-        status: 'queued',
-        step_label: 'queued-for-answering',
-        blocked_reason: null,
+        status: providerReady ? 'queued' : 'blocked',
+        step_label: providerReady ? 'queued-for-answering' : 'provider-not-ready',
+        blocked_reason: providerReady ? null : 'Gemini provider configuration is not ready',
         error_message: null,
         rerun_of_run_id: typeof body.rerun_of_run_id === 'number' ? body.rerun_of_run_id : null,
         created_at: '2026-04-24T00:00:00Z',
         started_at: null,
-        finished_at: null,
+        finished_at: providerReady ? null : '2026-04-24T00:00:00Z',
       };
       state.runs = [run, ...state.runs];
       state.nextRunId += 1;
@@ -488,7 +481,7 @@ beforeEach(() => {
 });
 
 describe('OakResearch shell', () => {
-  it('gates the composer until Gemini is validated and allows provider save/test flow', async () => {
+  it('surfaces blocked attempts until Gemini is validated and allows provider save/test flow', async () => {
     const state: ApiState = {
       providerConfig: {
         provider_name: 'gemini',
@@ -515,15 +508,19 @@ describe('OakResearch shell', () => {
 
     await screen.findByRole('button', { name: /Configure provider/i });
     const composer = screen.getByLabelText(/Question/i);
-    expect(composer).toBeDisabled();
-    expect(screen.getByText(/Gemini is not validated yet/i)).toBeInTheDocument();
+    expect(composer).not.toBeDisabled();
+    expect(screen.getByText(/Questions will be recorded as blocked/i)).toBeInTheDocument();
+
+    await user.type(composer, 'What happens before Gemini is configured?');
+    await user.click(screen.getByRole('button', { name: /Run query/i }));
+    await waitFor(() => expect(screen.getByText(/Gemini provider configuration is not ready/i)).toBeInTheDocument());
 
     await user.click(screen.getAllByRole('button', { name: /Configure provider/i })[0]);
     const keyInput = await screen.findByLabelText(/Gemini API key/i);
     await user.type(keyInput, 'valid-key');
     await user.click(screen.getByRole('button', { name: /Save key/i }));
 
-    await waitFor(() => expect(screen.queryByText(/Provider configuration/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /Provider configuration/i })).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByLabelText(/Question/i)).not.toBeDisabled());
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/provider/config'),
@@ -585,11 +582,12 @@ describe('OakResearch shell', () => {
 
     await user.click(screen.getAllByRole('button', { name: /Add source/i }).at(-1)!);
     await user.selectOptions(screen.getByLabelText(/Source type/i), 'text');
-    await user.type(screen.getByLabelText(/Title/i), 'Text source');
-    await user.type(screen.getByLabelText(/Paste text instead of uploading/i), 'Body text for the article');
+    await user.type(screen.getByLabelText(/Title/i), 'Text upload source');
+    const textUpload = new File(['Body text for the article'], 'article.txt', { type: 'text/plain' });
+    await user.upload(screen.getByLabelText(/Text or markdown file/i), textUpload);
     await user.click(screen.getAllByRole('button', { name: /Add source/i }).at(-1)!);
 
-    await waitFor(() => expect(screen.getByText(/Text source/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Text upload source/i)).toBeInTheDocument());
 
     const postCalls = fetchMock.mock.calls.filter(([input, init]) =>
       String(input).includes('/sources') && (init?.method ?? 'GET') === 'POST',
@@ -597,7 +595,8 @@ describe('OakResearch shell', () => {
     expect(postCalls.length).toBeGreaterThanOrEqual(2);
     const textPayload = JSON.parse(String(postCalls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(textPayload.source_type).toBe('text');
-    expect(textPayload.content_text).toBe('Body text for the article');
+    expect(String(textPayload.content_base64 ?? '')).toBe('ZmlsZSBieXRlcw==');
+    expect(textPayload.original_name).toBe('article.txt');
     expect(textPayload.source_url).toBeUndefined();
   });
 
