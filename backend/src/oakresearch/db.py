@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
-from typing import Any
-
 import base64
 import hashlib
 import hmac
+import json
 import secrets
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
 
 import asyncpg
 
@@ -76,6 +78,37 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def encode_secret(value: str) -> str:
+    return base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii")
+
+
+def decode_secret(value: str) -> str:
+    return base64.urlsafe_b64decode(value.encode("ascii")).decode("utf-8")
+
+
+def validate_gemini_api_key(api_key: str, *, timeout: float = 10.0) -> tuple[bool, str | None]:
+    normalized = api_key.strip()
+    if not normalized:
+        return False, "API key is required"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?{urllib.parse.urlencode({'key': normalized})}"
+    request = urllib.request.Request(url, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response.read()
+        return True, None
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(detail)
+            message = payload.get("error", {}).get("message") or detail
+        except json.JSONDecodeError:
+            message = detail or str(exc)
+        return False, message
+    except Exception as exc:  # pragma: no cover - network failures surface in UI
+        return False, str(exc)
+
+
 async def create_pool() -> asyncpg.Pool:
     return await asyncpg.create_pool(
         settings.database_url,
@@ -86,6 +119,23 @@ async def create_pool() -> asyncpg.Pool:
 
 async def ensure_storage_dir() -> None:
     DEFAULT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def store_source_payload(*, source_type: str, data: bytes, original_name: str | None = None) -> dict[str, str]:
+    payload_sha256 = hashlib.sha256(data).hexdigest()
+    suffix_map = {
+        "pdf": ".pdf",
+        "text": ".txt",
+        "markdown": ".md",
+        "url": ".txt",
+    }
+    suffix = suffix_map.get(source_type, Path(original_name or "").suffix or ".bin")
+    target_dir = DEFAULT_STORAGE_DIR / "sources" / payload_sha256[:2]
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"{payload_sha256}{suffix}"
+    payload_path = target_dir / file_name
+    payload_path.write_bytes(data)
+    return {"payload_uri": str(payload_path), "payload_sha256": payload_sha256}
 
 
 async def ensure_migrations_table(conn: asyncpg.Connection) -> None:
@@ -322,6 +372,53 @@ async def get_bootstrap_state(conn: asyncpg.Connection) -> dict[str, Any]:
     }
 
 
+async def get_provider_config(conn: asyncpg.Connection) -> dict[str, Any] | None:
+    row = await conn.fetchrow("SELECT * FROM provider_configs WHERE id = 1")
+    return dict(row) if row is not None else None
+
+
+async def get_provider_api_key(conn: asyncpg.Connection) -> str | None:
+    row = await get_provider_config(conn)
+    if row is None:
+        return None
+    ciphertext = row.get("api_key_ciphertext")
+    if not ciphertext:
+        return None
+    return decode_secret(ciphertext)
+
+
+async def update_provider_config(
+    conn: asyncpg.Connection,
+    *,
+    provider_name: str,
+    api_key: str | None,
+    validation_status: str,
+    validated_at: datetime | None,
+) -> dict[str, Any]:
+    encoded_key = encode_secret(api_key) if api_key else None
+    row = await conn.fetchrow(
+        """
+        INSERT INTO provider_configs (
+            id, provider_name, api_key_ciphertext, validation_status, validated_at
+        )
+        VALUES (1, $1, $2, $3, $4)
+        ON CONFLICT (id)
+        DO UPDATE SET provider_name = EXCLUDED.provider_name,
+                      api_key_ciphertext = EXCLUDED.api_key_ciphertext,
+                      validation_status = EXCLUDED.validation_status,
+                      validated_at = EXCLUDED.validated_at,
+                      updated_at = now()
+        RETURNING *
+        """,
+        provider_name,
+        encoded_key,
+        validation_status,
+        validated_at,
+    )
+    assert row is not None
+    return dict(row)
+
+
 async def complete_onboarding(
     conn: asyncpg.Connection,
     *,
@@ -392,30 +489,113 @@ async def authenticate_user(
 async def list_sources(conn: asyncpg.Connection) -> list[dict[str, Any]]:
     rows = await conn.fetch(
         """
-        SELECT *
-        FROM sources
-        ORDER BY created_at DESC, id DESC
+        SELECT
+            s.*,
+            sj.id AS latest_job_id,
+            sj.status AS job_status,
+            sj.step_label AS job_step_label,
+            sj.error_message AS job_error_message,
+            sj.started_at AS job_started_at,
+            sj.finished_at AS job_finished_at
+        FROM sources s
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM source_jobs
+            WHERE source_id = s.id
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ) sj ON TRUE
+        ORDER BY s.created_at DESC, s.id DESC
         """
     )
-    return [dict(row) for row in rows]
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        data = dict(row)
+        data["status"] = data.get("job_status") or "untracked"
+        items.append(data)
+    return items
 
 
 async def create_source(conn: asyncpg.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+    async with conn.transaction():
+        row = await conn.fetchrow(
+            """
+            INSERT INTO sources (notebook_id, source_type, title, payload_uri, payload_sha256, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            RETURNING *
+            """,
+            payload["notebook_id"],
+            payload["source_type"],
+            payload["title"],
+            payload["payload_uri"],
+            payload["payload_sha256"],
+            json.dumps(payload.get("metadata", {})),
+        )
+        assert row is not None
+
+        job = await conn.fetchrow(
+            """
+            INSERT INTO source_jobs (source_id, status, step_label)
+            VALUES ($1, 'queued', 'queued-for-ingestion')
+            RETURNING *
+            """,
+            row["id"],
+        )
+        assert job is not None
+        await conn.execute(
+            """
+            INSERT INTO source_job_items (job_id, item_index, status, step_label)
+            VALUES ($1, 0, 'queued', 'queued-for-ingestion')
+            """,
+            job["id"],
+        )
+    return await get_source(conn, row["id"])
+
+
+async def get_source(conn: asyncpg.Connection, source_id: int) -> dict[str, Any] | None:
+    rows = await conn.fetch(
+        """
+        SELECT
+            s.*,
+            sj.id AS latest_job_id,
+            sj.status AS job_status,
+            sj.step_label AS job_step_label,
+            sj.error_message AS job_error_message,
+            sj.started_at AS job_started_at,
+            sj.finished_at AS job_finished_at
+        FROM sources s
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM source_jobs
+            WHERE source_id = s.id
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ) sj ON TRUE
+        WHERE s.id = $1
+        LIMIT 1
+        """,
+        source_id,
+    )
+    if not rows:
+        return None
+    data = dict(rows[0])
+    data["status"] = data.get("job_status") or "untracked"
+    return data
+
+
+async def update_source_title(conn: asyncpg.Connection, source_id: int, title: str) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
-        INSERT INTO sources (notebook_id, source_type, title, payload_uri, payload_sha256, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+        UPDATE sources
+        SET title = $2,
+            updated_at = now()
+        WHERE id = $1
         RETURNING *
         """,
-        payload["notebook_id"],
-        payload["source_type"],
-        payload["title"],
-        payload["payload_uri"],
-        payload["payload_sha256"],
-        json.dumps(payload.get("metadata", {})),
+        source_id,
+        title,
     )
-    assert row is not None
-    return dict(row)
+    return dict(row) if row is not None else None
 
 
 async def list_runs(conn: asyncpg.Connection) -> list[dict[str, Any]]:

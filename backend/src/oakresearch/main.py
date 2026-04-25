@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import asyncpg
@@ -20,11 +22,17 @@ from .db import (
     create_source,
     get_authenticated_user,
     get_bootstrap_state,
+    get_provider_api_key,
+    get_provider_config,
     get_run,
     initialize_database,
     list_runs,
     list_sources,
     revoke_session,
+    store_source_payload,
+    update_provider_config,
+    update_source_title,
+    validate_gemini_api_key,
 )
 from .settings import get_settings
 
@@ -39,13 +47,24 @@ class CitationCreate(BaseModel):
     citation_index: int | None = None
 
 
+class ProviderConfigUpdate(BaseModel):
+    api_key: str
+
+
 class SourceCreate(BaseModel):
     notebook_id: int | None = None
     source_type: str = Field(default="text")
     title: str
-    payload_uri: str
-    payload_sha256: str
+    source_url: str | None = None
+    content_base64: str | None = None
+    content_text: str | None = None
+    original_name: str | None = None
+    mime_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceTitleUpdate(BaseModel):
+    title: str
 
 
 class RunAnswerCreate(BaseModel):
@@ -93,6 +112,19 @@ def serialize_user(user: dict[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def serialize_provider_config(provider_config: dict[str, Any] | None) -> dict[str, Any] | None:
+    if provider_config is None:
+        return None
+    return {
+        "provider_name": provider_config["provider_name"],
+        "validation_status": provider_config["validation_status"],
+        "validated_at": provider_config.get("validated_at"),
+        "created_at": provider_config.get("created_at"),
+        "updated_at": provider_config.get("updated_at"),
+        "api_key_present": bool(provider_config.get("api_key_ciphertext")),
+    }
+
+
 async def current_user(request: Request) -> dict[str, Any] | None:
     pool: asyncpg.Pool = request.app.state.pool
     token = request.cookies.get(DEFAULT_SESSION_COOKIE_NAME)
@@ -116,7 +148,14 @@ async def check_database(request: Request) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - surfaced in health response
         return {"status": "degraded", "detail": str(exc)}
 
-    return {"status": "ok", "bootstrap_complete": state["bootstrap_complete"], "schema_version": state["schema_version"]}
+    provider_config = state.get("provider_config")
+    provider_configured = bool(provider_config and provider_config.get("validation_status") == "valid")
+    return {
+        "status": "ok",
+        "bootstrap_complete": state["bootstrap_complete"],
+        "schema_version": state["schema_version"],
+        "provider_configured": provider_configured,
+    }
 
 
 @asynccontextmanager
@@ -256,20 +295,85 @@ async def logout(request: Request, response: Response) -> dict[str, Any]:
     return {"authenticated": False}
 
 
+@app.get("/provider/config")
+async def provider_config(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        config = await get_provider_config(conn)
+    return serialize_provider_config(config) or {
+        "provider_name": "gemini",
+        "validation_status": "unknown",
+        "validated_at": None,
+        "created_at": None,
+        "updated_at": None,
+        "api_key_present": False,
+    }
+
+
+@app.put("/provider/config")
+async def save_provider_config(
+    request: Request,
+    payload: ProviderConfigUpdate,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> dict[str, Any]:
+    if not payload.api_key.strip():
+        raise HTTPException(status_code=400, detail="API key is required")
+
+    validation_ok, validation_error = await asyncio.to_thread(validate_gemini_api_key, payload.api_key)
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        config = await update_provider_config(
+            conn,
+            provider_name="gemini",
+            api_key=payload.api_key,
+            validation_status="valid" if validation_ok else "invalid",
+            validated_at=datetime.now(UTC) if validation_ok else None,
+        )
+
+    response = serialize_provider_config(config) or {}
+    response["validation_message"] = validation_error
+    return response
+
+
+@app.post("/provider/config/test")
+async def test_provider_config(
+    request: Request,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        api_key = await get_provider_api_key(conn)
+        if not api_key:
+            config = await update_provider_config(
+                conn,
+                provider_name="gemini",
+                api_key=None,
+                validation_status="invalid",
+                validated_at=None,
+            )
+            return {
+                **(serialize_provider_config(config) or {}),
+                "validation_message": "No API key configured",
+            }
+        validation_ok, validation_error = await asyncio.to_thread(validate_gemini_api_key, api_key)
+        config = await update_provider_config(
+            conn,
+            provider_name="gemini",
+            api_key=api_key,
+            validation_status="valid" if validation_ok else "invalid",
+            validated_at=datetime.now(UTC) if validation_ok else None,
+        )
+
+    response = serialize_provider_config(config) or {}
+    response["validation_message"] = validation_error
+    return response
+
+
 @app.get("/bootstrap/status")
 async def bootstrap_status(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
     state = await fetch_bootstrap_state(request)
     state["owner"] = serialize_user(state.get("owner"))
-    provider_config = state.get("provider_config")
-    if provider_config is not None:
-        state["provider_config"] = {
-            "id": provider_config["id"],
-            "provider_name": provider_config["provider_name"],
-            "validation_status": provider_config["validation_status"],
-            "validated_at": provider_config["validated_at"],
-            "created_at": provider_config["created_at"],
-            "updated_at": provider_config["updated_at"],
-        }
+    state["provider_config"] = serialize_provider_config(state.get("provider_config"))
     return state
 
 
@@ -309,6 +413,33 @@ async def create_source_record(
     if notebook_id is None:
         raise HTTPException(status_code=409, detail="Default notebook is not available")
 
+    if payload.content_base64:
+        raw_bytes = base64.b64decode(payload.content_base64)
+        input_kind = "upload"
+    elif payload.content_text is not None:
+        raw_bytes = payload.content_text.encode("utf-8")
+        input_kind = "text"
+    elif payload.source_url:
+        raw_text = payload.content_text if payload.content_text is not None else payload.source_url
+        raw_bytes = raw_text.encode("utf-8")
+        input_kind = "url"
+    else:
+        raise HTTPException(status_code=400, detail="Source content is required")
+
+    stored_payload = store_source_payload(
+        source_type=payload.source_type,
+        data=raw_bytes,
+        original_name=payload.original_name,
+    )
+    metadata = {
+        **payload.metadata,
+        "input_kind": input_kind,
+        "original_name": payload.original_name,
+        "mime_type": payload.mime_type,
+        "source_url": payload.source_url,
+        "has_fallback_text": bool(payload.content_text and payload.source_url),
+    }
+
     async with pool.acquire() as conn:
         return await create_source(
             conn,
@@ -316,11 +447,25 @@ async def create_source_record(
                 "notebook_id": notebook_id,
                 "source_type": payload.source_type,
                 "title": payload.title,
-                "payload_uri": payload.payload_uri,
-                "payload_sha256": payload.payload_sha256,
-                "metadata": payload.metadata,
+                **stored_payload,
+                "metadata": metadata,
             },
         )
+
+
+@app.patch("/sources/{source_id}")
+async def update_source_record(
+    request: Request,
+    source_id: int,
+    payload: SourceTitleUpdate,
+    _: dict[str, Any] = Depends(require_authentication),
+) -> dict[str, Any]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        source = await update_source_title(conn, source_id, payload.title)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
 
 
 @app.get("/runs")
