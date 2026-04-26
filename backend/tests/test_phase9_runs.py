@@ -11,8 +11,8 @@ import asyncpg
 from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
-from oakresearch.answering import AnsweringError, DEFAULT_REFUSAL_MESSAGE, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance, mark_run_blocked, mark_run_failed, mark_run_job_failed
+from oakresearch.answering import AnsweringError, process_next_run_job_once
+from oakresearch.db import apply_migrations, bootstrap_instance
 from oakresearch.ingestion import process_next_source_job_once
 from oakresearch.main import app
 
@@ -100,29 +100,23 @@ class Phase9RunsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200)
         blocked_run_id = response.json()["id"]
-        async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            blocked_job_id = await conn.fetchval(
-                "SELECT id FROM jobs WHERE entity_id = $1 AND kind = 'run-question' ORDER BY id DESC LIMIT 1",
-                blocked_run_id,
-            )
-            await mark_run_blocked(conn, run_id=blocked_run_id, blocked_reason=DEFAULT_REFUSAL_MESSAGE)
-            await mark_run_job_failed(conn, int(blocked_job_id), DEFAULT_REFUSAL_MESSAGE)
+        with patch("oakresearch.answering.retrieve_relevant_chunks", return_value=[]):
+            processed = await process_next_run_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "blocked")
 
         response = await client.post(
             "/runs",
-            json={"question": "This run failed in the worker"},
+            json={"question": "What stack does OakResearch use if the worker crashes?"},
         )
         self.assertEqual(response.status_code, 200)
         failed_run_id = response.json()["id"]
-        async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            failed_job_id = await conn.fetchval(
-                "SELECT id FROM jobs WHERE entity_id = $1 AND kind = 'run-question' ORDER BY id DESC LIMIT 1",
-                failed_run_id,
-            )
-            await mark_run_failed(conn, run_id=failed_run_id, error_message="Worker crashed")
-            await mark_run_job_failed(conn, int(failed_job_id), "Worker crashed")
+        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
+            "oakresearch.answering.stream_gemini_text", side_effect=RuntimeError("Worker crashed")
+        ):
+            processed = await process_next_run_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "failed")
 
         response = await client.post(
             "/runs",
@@ -164,6 +158,18 @@ class Phase9RunsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(run["rerun_of_run_id"], success_run_id)
         self.assertEqual(run["status"], "succeeded")
         self.assertGreaterEqual(len(run["answer"]["citations"]), 1)
+
+    async def test_rerun_rejects_missing_parent_run(self) -> None:
+        client = await self.create_authenticated_client()
+        self.addAsyncCleanup(client.aclose)
+        await self.configure_provider(client)
+
+        response = await client.post(
+            "/runs",
+            json={"question": "Can I rerun a missing run?", "rerun_of_run_id": 999999},
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Parent run not found")
 
 
 if __name__ == "__main__":

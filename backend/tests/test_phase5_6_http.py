@@ -229,6 +229,26 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runs[0]["status"], "blocked")
         self.assertEqual(runs[0]["blocked_reason"], "Gemini provider configuration is not ready")
 
+    async def test_run_creation_blocks_when_saved_valid_provider_key_is_unusable(self) -> None:
+        client = await self.create_authenticated_client()
+        self.addAsyncCleanup(client.aclose)
+
+        async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(
+                """
+                UPDATE provider_configs
+                SET validation_status = 'valid', api_key_ciphertext = 'not-valid-base64', validated_at = now()
+                WHERE id = 1
+                """
+            )
+
+        response = await client.post("/runs", json={"question": "Should this be blocked?"})
+        self.assertEqual(response.status_code, 200)
+        run = response.json()
+        self.assertEqual(run["status"], "blocked")
+        self.assertEqual(run["step_label"], "provider-not-ready")
+
     async def test_protected_routes_require_authentication(self) -> None:
         client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(client.aclose)

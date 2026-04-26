@@ -12,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
 from oakresearch.answering import AnsweringError, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance, mark_run_failed, mark_run_job_failed
+from oakresearch.db import apply_migrations, bootstrap_instance
 from oakresearch.ingestion import IngestionError, process_next_source_job_once
 from oakresearch.main import app
 
@@ -94,31 +94,29 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(processed_source)
         self.assertEqual(processed_source["status"], "failed")
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")):
-            response = await client.post(
-                "/runs",
-                json={"question": "What is the capital of Mars?"},
-            )
-            self.assertEqual(response.status_code, 200)
-            blocked_run_id = response.json()["id"]
+        response = await client.post(
+            "/runs",
+            json={"question": "What is the capital of Mars?"},
+        )
+        self.assertEqual(response.status_code, 200)
+        blocked_run_id = response.json()["id"]
+        with patch("oakresearch.answering.retrieve_relevant_chunks", return_value=[]):
             processed_run = await process_next_run_job_once(self.pool)
         self.assertIsNotNone(processed_run)
         self.assertEqual(processed_run["status"], "blocked")
 
         response = await client.post(
             "/runs",
-            json={"question": "Worker crashed mid-run"},
+            json={"question": "What stack does OakResearch use when the worker crashes?"},
         )
         self.assertEqual(response.status_code, 200)
         failed_run_id = response.json()["id"]
-        async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            failed_job_id = await conn.fetchval(
-                "SELECT id FROM jobs WHERE entity_id = $1 AND kind = 'run-question' ORDER BY id DESC LIMIT 1",
-                failed_run_id,
-            )
-            await mark_run_failed(conn, run_id=failed_run_id, error_message="Worker crashed")
-            await mark_run_job_failed(conn, int(failed_job_id), "Worker crashed")
+        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
+            "oakresearch.answering.stream_gemini_text", side_effect=RuntimeError("Worker crashed")
+        ):
+            processed_run = await process_next_run_job_once(self.pool)
+        self.assertIsNotNone(processed_run)
+        self.assertEqual(processed_run["status"], "failed")
 
         response = await client.get("/diagnostics")
         self.assertEqual(response.status_code, 200)
@@ -131,17 +129,38 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("OakResearch overview", recent_job_labels)
         self.assertIn("Broken URL source", recent_job_labels)
         self.assertIn("What is the capital of Mars?", recent_job_labels)
-        self.assertIn("Worker crashed mid-run", recent_job_labels)
+        self.assertIn("What stack does OakResearch use when the worker crashes?", recent_job_labels)
 
         failure_labels = {item["label"] for item in diagnostics["recent_failures"]}
         self.assertIn("Broken URL source", failure_labels)
         self.assertIn("What is the capital of Mars?", failure_labels)
-        self.assertIn("Worker crashed mid-run", failure_labels)
+        self.assertIn("What stack does OakResearch use when the worker crashes?", failure_labels)
 
         failed_run = next(item for item in diagnostics["recent_failures"] if item["job_id"] == failed_run_id)
         self.assertEqual(failed_run["status"], "failed")
         blocked_run = next(item for item in diagnostics["recent_failures"] if item["job_id"] == blocked_run_id)
         self.assertEqual(blocked_run["status"], "blocked")
+
+    async def test_diagnostics_downgrades_valid_config_when_key_is_unusable(self) -> None:
+        client = await self.create_authenticated_client()
+        self.addAsyncCleanup(client.aclose)
+
+        async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(
+                """
+                UPDATE provider_configs
+                SET validation_status = 'valid', api_key_ciphertext = 'not-valid-base64', validated_at = now()
+                WHERE id = 1
+                """
+            )
+
+        response = await client.get("/diagnostics")
+        self.assertEqual(response.status_code, 200)
+        diagnostics = response.json()
+        self.assertEqual(diagnostics["provider_config"]["validation_status"], "valid")
+        self.assertEqual(diagnostics["provider_test_result"]["status"], "invalid")
+        self.assertEqual(diagnostics["provider_test_result"]["message"], "Saved key needs attention")
 
 
 if __name__ == "__main__":

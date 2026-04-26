@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
 from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import IngestionError, process_next_source_job_once
+from oakresearch.ingestion import IngestionError, process_next_source_job_once, _validate_public_url
 from oakresearch.main import app
 
 
@@ -101,19 +101,27 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         response = await client.get("/sources")
         self.assertEqual(response.status_code, 200)
         sources = response.json()
-        self.assertEqual(sources[0]["status"], "succeeded")
-        self.assertEqual(sources[0]["job_status"], "succeeded")
-        self.assertEqual(sources[0]["job_step_label"], "ingestion-complete")
-        self.assertEqual(sources[0]["metadata"]["original_name"], "notes.txt")
+        source_by_id = {source["id"]: source for source in sources}
+        self.assertEqual(source_by_id[queued["id"]]["status"], "succeeded")
+        self.assertEqual(source_by_id[uploaded["id"]]["status"], "succeeded")
+        self.assertEqual(source_by_id[uploaded["id"]]["job_status"], "succeeded")
+        self.assertEqual(source_by_id[uploaded["id"]]["job_step_label"], "ingestion-complete")
+        self.assertEqual(source_by_id[uploaded["id"]]["metadata"]["original_name"], "notes.txt")
 
         async with self.pool.acquire() as conn:
             await conn.execute(f'SET search_path TO {self.schema_name}')
-            chunks = await conn.fetch(
+            text_chunks = await conn.fetch(
                 "SELECT chunk_index, chunk_text FROM source_chunks WHERE source_id = $1 ORDER BY chunk_index ASC",
-                sources[0]["id"],
+                queued["id"],
             )
-        self.assertGreaterEqual(len(chunks), 1)
-        self.assertIn("uploaded paragraph", chunks[0]["chunk_text"])
+            upload_chunks = await conn.fetch(
+                "SELECT chunk_index, chunk_text FROM source_chunks WHERE source_id = $1 ORDER BY chunk_index ASC",
+                uploaded["id"],
+            )
+        self.assertGreaterEqual(len(text_chunks), 1)
+        self.assertIn("alpha paragraph", text_chunks[0]["chunk_text"])
+        self.assertGreaterEqual(len(upload_chunks), 1)
+        self.assertIn("uploaded paragraph", upload_chunks[0]["chunk_text"])
 
     async def test_broken_url_fails_and_can_be_retried(self) -> None:
         client = await self.create_authenticated_client()
@@ -201,6 +209,52 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual([job["status"] for job in jobs], ["failed", "succeeded"])
         self.assertEqual(jobs[-1]["step_label"], "ingestion-complete")
+
+    async def test_url_validation_rejects_private_hostname_resolution(self) -> None:
+        private_addrinfo = [(None, None, None, None, ("10.0.0.5", 443))]
+        link_local_v6_addrinfo = [(None, None, None, None, ("fe80::1", 443, 0, 0))]
+        mixed_addrinfo = [
+            (None, None, None, None, ("2606:4700:4700::1111", 443, 0, 0)),
+            (None, None, None, None, ("127.0.0.1", 443)),
+        ]
+        public_addrinfo = [(None, None, None, None, ("93.184.216.34", 443))]
+
+        for addrinfo in (private_addrinfo, link_local_v6_addrinfo, mixed_addrinfo):
+            with self.subTest(addrinfo=addrinfo), patch("oakresearch.ingestion.socket.getaddrinfo", return_value=addrinfo):
+                with self.assertRaisesRegex(IngestionError, "non-public"):
+                    _validate_public_url("https://example.com/article")
+
+        with patch("oakresearch.ingestion.socket.getaddrinfo", return_value=public_addrinfo):
+            _validate_public_url("https://example.com/article")
+
+        with self.assertRaisesRegex(IngestionError, "not public"):
+            _validate_public_url("http://[::1]/health")
+
+    async def test_url_source_with_fallback_text_never_fetches_network(self) -> None:
+        client = await self.create_authenticated_client()
+        self.addAsyncCleanup(client.aclose)
+
+        response = await client.post(
+            "/sources",
+            json={
+                "source_type": "url",
+                "title": "Fallback URL source",
+                "source_url": "https://example.com/article",
+                "content_text": "Stored fallback text should be ingested without fetching.",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        source = response.json()
+
+        with patch("oakresearch.ingestion._fetch_url_text", side_effect=AssertionError("network should not be fetched")):
+            processed = await process_next_source_job_once(self.pool)
+        self.assertIsNotNone(processed)
+        self.assertEqual(processed["status"], "succeeded")
+
+        async with self.pool.acquire() as conn:
+            await conn.execute(f'SET search_path TO {self.schema_name}')
+            chunk_text = await conn.fetchval("SELECT chunk_text FROM source_chunks WHERE source_id = $1", source["id"])
+        self.assertIn("Stored fallback text", chunk_text)
 
 
 if __name__ == "__main__":

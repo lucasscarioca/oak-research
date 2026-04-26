@@ -631,6 +631,13 @@ async def create_run_record(
     }
 
     async with pool.acquire() as conn:
+        if payload.rerun_of_run_id is not None:
+            parent_run = await get_run(conn, payload.rerun_of_run_id)
+            if parent_run is None:
+                raise HTTPException(status_code=404, detail="Parent run not found")
+            if int(parent_run["notebook_id"]) != int(notebook_id):
+                raise HTTPException(status_code=400, detail="Parent run belongs to a different notebook")
+
         provider_config = await get_provider_config(conn)
         provider_api_key = await get_provider_api_key(conn)
         provider_ready = bool(

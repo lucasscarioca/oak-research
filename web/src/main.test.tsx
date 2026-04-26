@@ -83,6 +83,7 @@ type ApiState = {
   nextSourceId: number;
   nextRunId: number;
   patchShouldFail: boolean;
+  streamShouldFail?: boolean;
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -103,20 +104,6 @@ function parseJsonBody(init?: RequestInit): Record<string, unknown> {
     return JSON.parse(new TextDecoder().decode(init.body)) as Record<string, unknown>;
   }
   throw new Error('Unsupported request body type');
-}
-
-class MockFileReader {
-  onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
-  onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => unknown) | null = null;
-  result: string | ArrayBuffer | null = null;
-
-  readAsArrayBuffer(_file: Blob) {
-    const bytes = new TextEncoder().encode('file bytes');
-    const buffer = new window.ArrayBuffer(bytes.length);
-    new Uint8Array(buffer).set(bytes);
-    this.result = buffer;
-    this.onload?.call(this as unknown as FileReader, {} as ProgressEvent<FileReader>);
-  }
 }
 
 function installApiMock(state: ApiState) {
@@ -403,6 +390,15 @@ function installApiMock(state: ApiState) {
     if (url.pathname.startsWith('/runs/') && url.pathname.endsWith('/stream') && method === 'GET') {
       const runId = Number(url.pathname.split('/')[2]);
       const run = state.runs.find((item) => item.id === runId);
+      if (state.streamShouldFail) {
+        if (run) {
+          run.status = 'failed';
+          run.step_label = 'answer-failed';
+          run.error_message = 'Stream interrupted';
+          run.finished_at = '2026-04-24T00:00:00Z';
+        }
+        return jsonResponse({ detail: 'Stream interrupted' }, 502);
+      }
       const answerText =
         run?.answer?.answer_text ||
         (run?.status === 'blocked'
@@ -477,7 +473,6 @@ beforeEach(() => {
     return 1 as unknown as number;
   }) as typeof window.setInterval);
   vi.spyOn(window, 'clearInterval').mockImplementation(() => undefined);
-  vi.stubGlobal('FileReader', MockFileReader as unknown as typeof FileReader);
 });
 
 describe('OakResearch shell', () => {
@@ -595,7 +590,7 @@ describe('OakResearch shell', () => {
     expect(postCalls.length).toBeGreaterThanOrEqual(2);
     const textPayload = JSON.parse(String(postCalls[1]?.[1]?.body)) as Record<string, unknown>;
     expect(textPayload.source_type).toBe('text');
-    expect(String(textPayload.content_base64 ?? '')).toBe('ZmlsZSBieXRlcw==');
+    expect(String(textPayload.content_base64 ?? '')).toBe(window.btoa('Body text for the article'));
     expect(textPayload.original_name).toBe('article.txt');
     expect(textPayload.source_url).toBeUndefined();
   });
@@ -779,6 +774,41 @@ describe('OakResearch shell', () => {
     const rerunPayload = JSON.parse(String(runCalls.at(-1)?.[1]?.body)) as Record<string, unknown>;
     expect(rerunPayload.rerun_of_run_id).toBe(originalRunId);
     await waitFor(() => expect(screen.getAllByText(new RegExp(`Rerun of #${originalRunId}`)).length).toBeGreaterThan(0));
+  });
+
+  it('surfaces stream failures and refreshes failed run state', async () => {
+    const state: ApiState = {
+      providerConfig: {
+        provider_name: 'gemini',
+        validation_status: 'valid',
+        validated_at: '2026-04-24T00:00:00Z',
+        created_at: '2026-04-24T00:00:00Z',
+        updated_at: '2026-04-24T00:00:00Z',
+        api_key_present: true,
+        validation_message: null,
+      },
+      sources: [],
+      healthStatus: 'ok',
+      workerStatus: 'ok',
+      defaultNotebook: DEFAULT_NOTEBOOK,
+      nextSourceId: 1,
+      nextRunId: 1,
+      runs: [],
+      patchShouldFail: false,
+      streamShouldFail: true,
+    };
+    installApiMock(state);
+    const user = userEvent.setup();
+
+    render(<App />);
+    const questionInput = await screen.findByRole('textbox', { name: /Question/i });
+    await user.type(questionInput, 'Will streaming fail?');
+    await user.click(screen.getByRole('button', { name: /Run query/i }));
+
+    await waitFor(() => expect(screen.getByText(/Stream interrupted/i)).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /Runs/i }));
+    await waitFor(() => expect(screen.getAllByText('Failed').length).toBeGreaterThan(0));
+    expect(state.runs[0]?.status).toBe('failed');
   });
 
   it('shows diagnostics for provider health and recent jobs', async () => {
