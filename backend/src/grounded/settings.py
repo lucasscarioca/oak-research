@@ -7,10 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "OakResearch"
+    app_name: str = "Grounded"
     environment: str = Field(default="development", alias="ENVIRONMENT")
     database_url: str = Field(
-        default="postgresql://oakresearch:oakresearch@db:5432/oakresearch", alias="DATABASE_URL"
+        default="postgresql://grounded:grounded@db:5432/grounded", alias="DATABASE_URL"
     )
     app_secret: str = Field(default="change-me-in-production", alias="APP_SECRET")
     session_secret: str = Field(default="change-me-in-production", alias="SESSION_SECRET")
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = Field(
         default="text-embedding-004", alias="GEMINI_EMBEDDING_MODEL"
     )
-    storage_path: str = Field(default="/data/oakresearch", alias="SOURCE_STORAGE_PATH")
+    storage_path: str = Field(default="/data/grounded", alias="SOURCE_STORAGE_PATH")
     web_origin: str = Field(default="http://localhost:5173", alias="WEB_ORIGIN")
     cookie_secure: bool = Field(default=False, alias="COOKIE_SECURE")
 

@@ -1,4 +1,4 @@
-# OakResearch
+# Grounded
 
 Minimal self-hostable deep research notebook starter.
 

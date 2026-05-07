@@ -11,18 +11,18 @@ from unittest.mock import patch
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
-from oakresearch import db as db_module
-from oakresearch.answering import AnsweringError, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import process_next_source_job_once
-from oakresearch.main import app
+from grounded import db as db_module
+from grounded.answering import AnsweringError, process_next_run_job_once
+from grounded.db import apply_migrations, bootstrap_instance
+from grounded.ingestion import process_next_source_job_once
+from grounded.main import app
 
 
 class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(
@@ -60,7 +60,7 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         return client
 
     async def configure_provider(self, client: AsyncClient) -> None:
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(True, None)):
+        with patch("grounded.main.validate_gemini_api_key", return_value=(True, None)):
             response = await client.put("/provider/config", json={"api_key": "dummy-key"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["validation_status"], "valid")
@@ -83,8 +83,8 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
             json={
                 "notebook_id": notebook_id,
                 "source_type": "text",
-                "title": "OakResearch overview",
-                "content_text": "OakResearch uses FastAPI, Postgres, a worker service, and cited answers.",
+                "title": "Grounded overview",
+                "content_text": "Grounded uses FastAPI, Postgres, a worker service, and cited answers.",
             },
         )
         self.assertEqual(source_response.status_code, 200)
@@ -99,15 +99,15 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(source_detail.json()["chunks"]), 1)
 
         async def fake_stream(*args, **kwargs):
-            yield "OakResearch uses FastAPI and Postgres"
+            yield "Grounded uses FastAPI and Postgres"
             yield " [1]."
 
         with (
-            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
-            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
+            patch("grounded.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("grounded.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             run_response = await client.post(
-                "/runs", json={"question": "What stack does OakResearch use?"}
+                "/runs", json={"question": "What stack does Grounded use?"}
             )
             self.assertEqual(run_response.status_code, 200)
             run_id = run_response.json()["id"]
@@ -128,7 +128,7 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(stream_task, timeout=10)
 
         stream_text = "".join(streamed_tokens)
-        self.assertIn("OakResearch uses FastAPI and Postgres", stream_text)
+        self.assertIn("Grounded uses FastAPI and Postgres", stream_text)
         self.assertIn("[1]", stream_text)
 
         run_detail_response = await client.get(f"/runs/{run_id}")
@@ -149,7 +149,7 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         rerun_response = await client.post(
             "/runs",
             json={
-                "question": "What stack does OakResearch use?",
+                "question": "What stack does Grounded use?",
                 "rerun_of_run_id": run_id,
             },
         )
@@ -157,8 +157,8 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         rerun_id = rerun_response.json()["id"]
 
         with (
-            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
-            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
+            patch("grounded.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("grounded.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             rerun_job = await process_next_run_job_once(self.pool)
             self.assertIsNotNone(rerun_job)
@@ -172,7 +172,7 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(diagnostics_response.status_code, 200)
         diagnostics = diagnostics_response.json()
         self.assertEqual(diagnostics["provider_test_result"]["status"], "valid")
-        self.assertIn("OakResearch overview", {job["label"] for job in diagnostics["recent_jobs"]})
+        self.assertIn("Grounded overview", {job["label"] for job in diagnostics["recent_jobs"]})
         self.assertEqual(diagnostics["recent_failures"], [])
 
 

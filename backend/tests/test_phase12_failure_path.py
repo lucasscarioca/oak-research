@@ -10,18 +10,18 @@ from unittest.mock import patch
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
-from oakresearch import db as db_module
-from oakresearch.answering import AnsweringError, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import IngestionError, process_next_source_job_once
-from oakresearch.main import app
+from grounded import db as db_module
+from grounded.answering import AnsweringError, process_next_run_job_once
+from grounded.db import apply_migrations, bootstrap_instance
+from grounded.ingestion import IngestionError, process_next_source_job_once
+from grounded.main import app
 
 
 class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(
@@ -59,7 +59,7 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         return client
 
     async def configure_provider(self, client: AsyncClient) -> None:
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(True, None)):
+        with patch("grounded.main.validate_gemini_api_key", return_value=(True, None)):
             response = await client.put("/provider/config", json={"api_key": "dummy-key"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["validation_status"], "valid")
@@ -81,7 +81,7 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         broken_source_id = broken_source_response.json()["id"]
 
         with patch(
-            "oakresearch.ingestion._fetch_url_text",
+            "grounded.ingestion._fetch_url_text",
             side_effect=IngestionError(
                 "Unable to fetch URL content from https://example.invalid/missing"
             ),
@@ -110,7 +110,7 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
             json={
                 "source_type": "text",
                 "title": "Usable source",
-                "content_text": "OakResearch stays usable after a broken URL fails.",
+                "content_text": "Grounded stays usable after a broken URL fails.",
             },
         )
         self.assertEqual(usable_source_response.status_code, 200)
@@ -120,12 +120,12 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(processed["status"], "succeeded")
 
         async def fake_stream(*args, **kwargs):
-            yield "OakResearch stays usable after a broken URL fails"
+            yield "Grounded stays usable after a broken URL fails"
             yield " [1]."
 
         with (
-            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
-            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
+            patch("grounded.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("grounded.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             run_response = await client.post(
                 "/runs",
@@ -146,7 +146,7 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retry_response.status_code, 200)
         self.assertEqual(retry_response.json()["status"], "queued")
 
-        with patch("oakresearch.ingestion._fetch_url_text", return_value="Recovered article text"):
+        with patch("grounded.ingestion._fetch_url_text", return_value="Recovered article text"):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "succeeded")

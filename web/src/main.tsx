@@ -668,9 +668,9 @@ function AuthScreen({
     <div className="auth-screen">
       <div className="auth-card">
         <div className="brand-block auth-brand">
-          <div className="brand-mark">OR</div>
+          <div className="brand-mark">G</div>
           <div>
-            <h1>OakResearch</h1>
+            <h1>Grounded</h1>
             <p>Self-hosted research notebook</p>
           </div>
         </div>
@@ -1128,9 +1128,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <div className="brand-mark">OR</div>
+          <div className="brand-mark">G</div>
           <div>
-            <h1>OakResearch</h1>
+            <h1>Grounded</h1>
             <p>Self-hosted research notebook</p>
           </div>
         </div>
@@ -1285,7 +1285,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                       <p>{currentQuestion}</p>
                     </div>
                     <div className="message message-assistant">
-                      <span className="message-label">OakResearch</span>
+                      <span className="message-label">Grounded</span>
                       <p>
                         {currentRun?.answer?.citations &&
                         (currentAnswerText || currentRun?.answer?.answer_text)
@@ -1310,7 +1310,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   </>
                 ) : (
                   <div className="message message-assistant">
-                    <span className="message-label">OakResearch</span>
+                    <span className="message-label">Grounded</span>
                     <p>
                       {providerReady
                         ? "Ask a grounded question to start a streamed answer run."
@@ -2054,9 +2054,9 @@ export function App() {
       <div className="auth-screen">
         <div className="auth-card">
           <div className="brand-block auth-brand">
-            <div className="brand-mark">OR</div>
+            <div className="brand-mark">G</div>
             <div>
-              <h1>OakResearch</h1>
+              <h1>Grounded</h1>
               <p>Self-hosted research notebook</p>
             </div>
           </div>

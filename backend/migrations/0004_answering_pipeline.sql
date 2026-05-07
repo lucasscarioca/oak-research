@@ -1,4 +1,4 @@
--- OakResearch answering pipeline storage
+-- Grounded answering pipeline storage
 
 CREATE EXTENSION IF NOT EXISTS vector;
 

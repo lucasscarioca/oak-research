@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "oakresearch-web",
+      "name": "grounded-web",
       "dependencies": {
         "react": "^19.1.0",
         "react-dom": "^19.1.0",

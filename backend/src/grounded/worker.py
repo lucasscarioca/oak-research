@@ -51,7 +51,7 @@ async def ingestion_loop(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting OakResearch worker in %s", settings.environment)
+    logger.info("Starting Grounded worker in %s", settings.environment)
     pool = await create_pool()
     app.state.pool = pool
     async with pool.acquire() as conn:
@@ -64,10 +64,10 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await worker_task
         await pool.close()
-        logger.info("Shutting down OakResearch worker")
+        logger.info("Shutting down Grounded worker")
 
 
-app = FastAPI(title="OakResearch Worker", lifespan=lifespan)
+app = FastAPI(title="Grounded Worker", lifespan=lifespan)
 
 
 @app.get("/")

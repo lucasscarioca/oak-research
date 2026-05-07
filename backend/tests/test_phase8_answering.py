@@ -10,18 +10,18 @@ from unittest.mock import patch
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
-from oakresearch import db as db_module
-from oakresearch.answering import AnsweringError, process_next_run_job_once
-from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import process_next_source_job_once
-from oakresearch.main import app
+from grounded import db as db_module
+from grounded.answering import AnsweringError, process_next_run_job_once
+from grounded.db import apply_migrations, bootstrap_instance
+from grounded.ingestion import process_next_source_job_once
+from grounded.main import app
 
 
 class Phase8AnsweringTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(
@@ -59,7 +59,7 @@ class Phase8AnsweringTest(unittest.IsolatedAsyncioTestCase):
         return client
 
     async def configure_provider(self, client: AsyncClient) -> None:
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(True, None)):
+        with patch("grounded.main.validate_gemini_api_key", return_value=(True, None)):
             response = await client.put("/provider/config", json={"api_key": "dummy-key"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["validation_status"], "valid")
@@ -73,8 +73,8 @@ class Phase8AnsweringTest(unittest.IsolatedAsyncioTestCase):
             "/sources",
             json={
                 "source_type": "text",
-                "title": "OakResearch overview",
-                "content_text": "OakResearch uses FastAPI, Postgres, and a worker service. The notebook is self-hosted.",
+                "title": "Grounded overview",
+                "content_text": "Grounded uses FastAPI, Postgres, and a worker service. The notebook is self-hosted.",
             },
         )
         self.assertEqual(response.status_code, 200)
@@ -82,16 +82,16 @@ class Phase8AnsweringTest(unittest.IsolatedAsyncioTestCase):
         await process_next_source_job_once(self.pool)
 
         async def fake_stream(*args, **kwargs):
-            yield "OakResearch uses FastAPI and Postgres"
+            yield "Grounded uses FastAPI and Postgres"
             yield " [1]."
 
         with (
-            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
-            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
+            patch("grounded.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("grounded.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             response = await client.post(
                 "/runs",
-                json={"question": "What stack does OakResearch use?"},
+                json={"question": "What stack does Grounded use?"},
             )
             self.assertEqual(response.status_code, 200)
             run_id = response.json()["id"]
@@ -129,14 +129,14 @@ class Phase8AnsweringTest(unittest.IsolatedAsyncioTestCase):
             "/sources",
             json={
                 "source_type": "text",
-                "title": "OakResearch overview",
-                "content_text": "OakResearch uses FastAPI, Postgres, and a worker service.",
+                "title": "Grounded overview",
+                "content_text": "Grounded uses FastAPI, Postgres, and a worker service.",
             },
         )
         self.assertEqual(response.status_code, 200)
         await process_next_source_job_once(self.pool)
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")):
+        with patch("grounded.answering.embed_text", side_effect=AnsweringError("no embeddings")):
             response = await client.post(
                 "/runs",
                 json={"question": "What is the capital of Mars?"},

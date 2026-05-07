@@ -30,7 +30,7 @@ async def run_status() -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="oakresearch")
+    parser = argparse.ArgumentParser(prog="grounded")
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("migrate", help="Apply migrations and bootstrap default state")
     subcommands.add_parser("status", help="Print bootstrap state")

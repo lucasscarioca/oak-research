@@ -6,14 +6,14 @@ import uuid
 
 import asyncpg
 
-from oakresearch.db import apply_migrations, bootstrap_instance, get_bootstrap_state
+from grounded.db import apply_migrations, bootstrap_instance, get_bootstrap_state
 
 
 class Phase2SchemaTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=2)

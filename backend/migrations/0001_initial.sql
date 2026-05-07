@@ -1,4 +1,4 @@
--- OakResearch initial persistence schema
+-- Grounded initial persistence schema
 
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version text PRIMARY KEY,

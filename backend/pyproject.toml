@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "oakresearch-backend"
+name = "grounded-backend"
 version = "0.1.0"
-description = "OakResearch API and worker services"
+description = "Grounded API and worker services"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -43,4 +43,4 @@ indent-style = "space"
 line-ending = "lf"
 
 [project.scripts]
-oakresearch = "oakresearch.cli:main"
+grounded = "grounded.cli:main"

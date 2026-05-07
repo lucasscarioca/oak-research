@@ -1,4 +1,4 @@
--- OakResearch source chunk storage for ingestion
+-- Grounded source chunk storage for ingestion
 
 CREATE TABLE IF NOT EXISTS source_chunks (
     id bigserial PRIMARY KEY,

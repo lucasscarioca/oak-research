@@ -11,16 +11,16 @@ from unittest.mock import patch
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
-from oakresearch import db as db_module
-from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.main import app
+from grounded import db as db_module
+from grounded.db import apply_migrations, bootstrap_instance
+from grounded.main import app
 
 
 class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(
@@ -81,7 +81,7 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 400)
 
         with patch(
-            "oakresearch.main.validate_gemini_api_key",
+            "grounded.main.validate_gemini_api_key",
             return_value=(False, "API key not valid. Please pass a valid API key."),
         ):
             response = await client.put("/provider/config", json={"api_key": "invalid-key"})
@@ -95,7 +95,7 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("api_key_ciphertext", body)
         self.assertNotIn("invalid-key", json.dumps(body))
 
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(True, None)):
+        with patch("grounded.main.validate_gemini_api_key", return_value=(True, None)):
             response = await client.put("/provider/config", json={"api_key": "valid-key"})
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -108,7 +108,7 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["provider_configured"])
 
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(True, None)):
+        with patch("grounded.main.validate_gemini_api_key", return_value=(True, None)):
             response = await client.post("/provider/config/test")
         self.assertEqual(response.status_code, 200)
         body = response.json()

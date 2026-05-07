@@ -276,7 +276,7 @@ def _build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
 
     context_block = "\n\n".join(context_lines)
     return (
-        "You are OakResearch, a grounded research notebook assistant. "
+        "You are Grounded, a grounded research notebook assistant. "
         "Answer using only the notebook context below. "
         "If the context is insufficient, say exactly: "
         f'"{DEFAULT_REFUSAL_MESSAGE}". '

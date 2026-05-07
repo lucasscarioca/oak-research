@@ -11,17 +11,17 @@ from unittest.mock import patch
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
-from oakresearch import db as db_module
-from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import IngestionError, _validate_public_url, process_next_source_job_once
-from oakresearch.main import app
+from grounded import db as db_module
+from grounded.db import apply_migrations, bootstrap_instance
+from grounded.ingestion import IngestionError, _validate_public_url, process_next_source_job_once
+from grounded.main import app
 
 
 class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(
@@ -142,7 +142,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source["status"], "queued")
 
         with patch(
-            "oakresearch.ingestion._fetch_url_text",
+            "grounded.ingestion._fetch_url_text",
             side_effect=IngestionError(
                 "Unable to fetch URL content from https://example.invalid/missing"
             ),
@@ -163,7 +163,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retried["status"], "queued")
         self.assertEqual(retried["job_status"], "queued")
 
-        with patch("oakresearch.ingestion._fetch_url_text", return_value="Recovered article text"):
+        with patch("grounded.ingestion._fetch_url_text", return_value="Recovered article text"):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "succeeded")
@@ -197,7 +197,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retried["status"], "queued")
         self.assertEqual(retried["job_status"], "queued")
 
-        with patch("oakresearch.ingestion._fetch_url_text", return_value="Recovered article text"):
+        with patch("grounded.ingestion._fetch_url_text", return_value="Recovered article text"):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "succeeded")
@@ -229,12 +229,12 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         for addrinfo in (private_addrinfo, link_local_v6_addrinfo, mixed_addrinfo):
             with (
                 self.subTest(addrinfo=addrinfo),
-                patch("oakresearch.ingestion.socket.getaddrinfo", return_value=addrinfo),
+                patch("grounded.ingestion.socket.getaddrinfo", return_value=addrinfo),
             ):
                 with self.assertRaisesRegex(IngestionError, "non-public"):
                     _validate_public_url("https://example.com/article")
 
-        with patch("oakresearch.ingestion.socket.getaddrinfo", return_value=public_addrinfo):
+        with patch("grounded.ingestion.socket.getaddrinfo", return_value=public_addrinfo):
             _validate_public_url("https://example.com/article")
 
         with self.assertRaisesRegex(IngestionError, "not public"):
@@ -257,7 +257,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         source = response.json()
 
         with patch(
-            "oakresearch.ingestion._fetch_url_text",
+            "grounded.ingestion._fetch_url_text",
             side_effect=AssertionError("network should not be fetched"),
         ):
             processed = await process_next_source_job_once(self.pool)

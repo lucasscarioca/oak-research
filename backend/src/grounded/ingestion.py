@@ -22,7 +22,7 @@ from .db import (
     update_source_job_step,
 )
 
-USER_AGENT = "OakResearch/1.0"
+USER_AGENT = "Grounded/1.0"
 DEFAULT_REQUEST_TIMEOUT = 20.0
 DEFAULT_CHUNK_SIZE = 1200
 DEFAULT_CHUNK_OVERLAP = 160

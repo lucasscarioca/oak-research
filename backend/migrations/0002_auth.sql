@@ -1,4 +1,4 @@
--- OakResearch authentication/session schema
+-- Grounded authentication/session schema
 
 ALTER TABLE app_instance
     ADD COLUMN IF NOT EXISTS onboarding_complete boolean NOT NULL DEFAULT false;

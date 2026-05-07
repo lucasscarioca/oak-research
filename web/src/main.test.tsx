@@ -276,7 +276,7 @@ function installApiMock(state: ApiState) {
         rawBytes = Buffer.from(contentText ?? sourceUrl, "utf-8");
       }
 
-      const payloadUri = `/data/oakresearch/sources/${state.nextSourceId}/${state.nextSourceId}.bin`;
+      const payloadUri = `/data/grounded/sources/${state.nextSourceId}/${state.nextSourceId}.bin`;
       const record: SourceRecord = {
         id: state.nextSourceId,
         notebook_id: notebookId,
@@ -412,7 +412,7 @@ function installApiMock(state: ApiState) {
         run?.answer?.answer_text ||
         (run?.status === "blocked"
           ? "I don’t have enough grounded evidence in the notebook sources to answer that confidently. Please add a more relevant source or ask a narrower question."
-          : "OakResearch uses FastAPI and Postgres [1].");
+          : "Grounded uses FastAPI and Postgres [1].");
       if (run) {
         run.status = run.status === "blocked" ? "blocked" : "succeeded";
         run.step_label = run.status === "blocked" ? "grounding-insufficient" : "answer-complete";
@@ -422,7 +422,7 @@ function installApiMock(state: ApiState) {
         run.answer = {
           id: run.id * 10,
           answer_text: answerText,
-          trace_summary: "Retrieved 1 chunk(s); Sources: OakResearch overview",
+          trace_summary: "Retrieved 1 chunk(s); Sources: Grounded overview",
           model: "gemini-2.0-flash",
           citations:
             run.status === "blocked"
@@ -432,7 +432,7 @@ function installApiMock(state: ApiState) {
                     id: run.id * 100,
                     source_id: state.sources[0]?.id ?? 1,
                     chunk_ref: `${state.sources[0]?.id ?? 1}:0`,
-                    citation_text: "Chunk for OakResearch overview",
+                    citation_text: "Chunk for Grounded overview",
                     citation_index: 0,
                   },
                 ],
@@ -486,7 +486,7 @@ beforeEach(() => {
   vi.spyOn(window, "clearInterval").mockImplementation(() => undefined);
 });
 
-describe("OakResearch shell", () => {
+describe("Grounded shell", () => {
   it("surfaces blocked attempts until Gemini is validated and allows provider save/test flow", async () => {
     const state: ApiState = {
       providerConfig: {
@@ -636,7 +636,7 @@ describe("OakResearch shell", () => {
           notebook_id: 1,
           source_type: "text",
           title: "Source to rename",
-          payload_uri: "/data/oakresearch/sources/1.bin",
+          payload_uri: "/data/grounded/sources/1.bin",
           payload_sha256: "sha-1",
           metadata: { input_kind: "text" },
           created_at: "2026-04-24T00:00:00Z",
@@ -693,7 +693,7 @@ describe("OakResearch shell", () => {
           notebook_id: 1,
           source_type: "url",
           title: "Broken URL source",
-          payload_uri: "/data/oakresearch/sources/1.txt",
+          payload_uri: "/data/grounded/sources/1.txt",
           payload_sha256: "sha-1",
           metadata: { input_kind: "url", source_url: "https://example.invalid/404" },
           created_at: "2026-04-24T00:00:00Z",
@@ -753,8 +753,8 @@ describe("OakResearch shell", () => {
           id: 1,
           notebook_id: 1,
           source_type: "text",
-          title: "OakResearch overview",
-          payload_uri: "/data/oakresearch/sources/1.txt",
+          title: "Grounded overview",
+          payload_uri: "/data/grounded/sources/1.txt",
           payload_sha256: "sha-1",
           metadata: { input_kind: "text" },
           created_at: "2026-04-24T00:00:00Z",
@@ -783,26 +783,24 @@ describe("OakResearch shell", () => {
     const questionInput = await screen.findByRole("textbox", { name: /Question/i });
 
     await user.click(questionInput);
-    await user.keyboard("What stack does OakResearch use?");
+    await user.keyboard("What stack does Grounded use?");
     await waitFor(() =>
-      expect((questionInput as HTMLTextAreaElement).value).toBe("What stack does OakResearch use?"),
+      expect((questionInput as HTMLTextAreaElement).value).toBe("What stack does Grounded use?"),
     );
     await user.click(screen.getByRole("button", { name: /Run query/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/OakResearch uses FastAPI and Postgres/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Grounded uses FastAPI and Postgres/i)).toBeInTheDocument(),
     );
     await waitFor(() => expect(screen.getByRole("button", { name: "[1]" })).toBeInTheDocument());
     const originalRunId = state.runs[0]?.id ?? 0;
 
     await user.click(screen.getByRole("button", { name: "[1]" }));
     await waitFor(() =>
-      expect(
-        screen.getByText(/OakResearch overview/i, { selector: ".eyebrow" }),
-      ).toBeInTheDocument(),
+      expect(screen.getByText(/Grounded overview/i, { selector: ".eyebrow" })).toBeInTheDocument(),
     );
     await waitFor(() =>
-      expect(screen.getByText(/Chunk for OakResearch overview/i)).toBeInTheDocument(),
+      expect(screen.getByText(/Chunk for Grounded overview/i)).toBeInTheDocument(),
     );
 
     await user.click(screen.getByRole("button", { name: /Runs/i }));
@@ -871,8 +869,8 @@ describe("OakResearch shell", () => {
           id: 1,
           notebook_id: 1,
           source_type: "text",
-          title: "OakResearch overview",
-          payload_uri: "/data/oakresearch/sources/1.txt",
+          title: "Grounded overview",
+          payload_uri: "/data/grounded/sources/1.txt",
           payload_sha256: "sha-1",
           metadata: { input_kind: "text" },
           created_at: "2026-04-24T00:00:00Z",
@@ -890,7 +888,7 @@ describe("OakResearch shell", () => {
           notebook_id: 1,
           source_type: "url",
           title: "Broken URL source",
-          payload_uri: "/data/oakresearch/sources/2.txt",
+          payload_uri: "/data/grounded/sources/2.txt",
           payload_sha256: "sha-2",
           metadata: { input_kind: "url" },
           created_at: "2026-04-24T01:00:00Z",
@@ -913,7 +911,7 @@ describe("OakResearch shell", () => {
         {
           id: 1,
           notebook_id: 1,
-          question: "What stack does OakResearch use?",
+          question: "What stack does Grounded use?",
           status: "blocked",
           step_label: "grounding-insufficient",
           blocked_reason: "Insufficient grounding in notebook sources",
@@ -947,6 +945,6 @@ describe("OakResearch shell", () => {
     expect(screen.getByText(/Recent jobs/i)).toBeInTheDocument();
     expect(screen.getByText(/Recent failures/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Broken URL source/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/What stack does OakResearch use\?/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/What stack does Grounded use\?/i).length).toBeGreaterThan(0);
   });
 });

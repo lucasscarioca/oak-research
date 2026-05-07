@@ -2,13 +2,13 @@ services:
   db:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: oakresearch
-      POSTGRES_USER: oakresearch
-      POSTGRES_PASSWORD: oakresearch
+      POSTGRES_DB: grounded
+      POSTGRES_USER: grounded
+      POSTGRES_PASSWORD: grounded
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U oakresearch -d oakresearch"]
+      test: ["CMD-SHELL", "pg_isready -U grounded -d grounded"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -17,27 +17,27 @@ services:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
-      SOURCE_STORAGE_PATH: /data/oakresearch
+      DATABASE_URL: postgresql://grounded:grounded@db:5432/grounded
+      SOURCE_STORAGE_PATH: /data/grounded
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-    command: ["uv", "run", "oakresearch", "migrate"]
+    command: ["uv", "run", "grounded", "migrate"]
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - source-data:/data/oakresearch
+      - source-data:/data/grounded
 
   api:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
-      SOURCE_STORAGE_PATH: /data/oakresearch
+      DATABASE_URL: postgresql://grounded:grounded@db:5432/grounded
+      SOURCE_STORAGE_PATH: /data/grounded
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -45,7 +45,7 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     command: >
-      uv run uvicorn oakresearch.main:app
+      uv run uvicorn grounded.main:app
       --host 0.0.0.0
       --port 8000
     depends_on:
@@ -56,7 +56,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - source-data:/data/oakresearch
+      - source-data:/data/grounded
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 5s
@@ -67,8 +67,8 @@ services:
     build:
       context: ./backend
     environment:
-      DATABASE_URL: postgresql://oakresearch:oakresearch@db:5432/oakresearch
-      SOURCE_STORAGE_PATH: /data/oakresearch
+      DATABASE_URL: postgresql://grounded:grounded@db:5432/grounded
+      SOURCE_STORAGE_PATH: /data/grounded
       APP_SECRET: ${APP_SECRET:-change-me-in-production}
       SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -76,7 +76,7 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     command: >
-      uv run uvicorn oakresearch.worker:app
+      uv run uvicorn grounded.worker:app
       --host 0.0.0.0
       --port 8001
     depends_on:
@@ -87,7 +87,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - source-data:/data/oakresearch
+      - source-data:/data/grounded
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
       interval: 5s

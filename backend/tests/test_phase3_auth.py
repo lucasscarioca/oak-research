@@ -6,7 +6,7 @@ import uuid
 
 import asyncpg
 
-from oakresearch.db import (
+from grounded.db import (
     apply_migrations,
     authenticate_user,
     bootstrap_instance,
@@ -23,7 +23,7 @@ class Phase3AuthTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.database_url = os.environ.get(
             "TEST_DATABASE_URL",
-            "postgresql://oakresearch:oakresearch@db:5432/oakresearch",
+            "postgresql://grounded:grounded@db:5432/grounded",
         )
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=2)

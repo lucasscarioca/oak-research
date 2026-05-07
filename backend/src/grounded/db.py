@@ -25,7 +25,7 @@ DEFAULT_OWNER_PASSWORD_HASH = "unconfigured"
 DEFAULT_NOTEBOOK_NAME = "Default notebook"
 DEFAULT_PROVIDER_NAME = "gemini"
 DEFAULT_STORAGE_DIR = Path(settings.storage_path)
-DEFAULT_SESSION_COOKIE_NAME = "oakresearch_session"
+DEFAULT_SESSION_COOKIE_NAME = "grounded_session"
 DEFAULT_SESSION_TTL = timedelta(days=30)
 PASSWORD_HASH_ALGORITHM = "pbkdf2_sha256"
 PASSWORD_HASH_ITERATIONS = 200_000
