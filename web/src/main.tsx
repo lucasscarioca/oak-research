@@ -1,22 +1,22 @@
-import { StrictMode, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import './styles.css';
+import { type ReactNode, StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
 
-type TabId = 'chat' | 'sources' | 'runs' | 'diagnostics';
-type RuntimeStatus = 'checking' | 'healthy' | 'degraded' | 'offline';
-type AuthMode = 'loading' | 'onboarding' | 'login' | 'authenticated';
+type TabId = "chat" | "sources" | "runs" | "diagnostics";
+type RuntimeStatus = "checking" | "healthy" | "degraded" | "offline";
+type AuthMode = "loading" | "onboarding" | "login" | "authenticated";
 
 type HealthResponse = {
-  status: 'ok' | 'degraded';
+  status: "ok" | "degraded";
   database?: {
-    status: 'ok' | 'degraded';
+    status: "ok" | "degraded";
     detail?: string;
     provider_configured?: boolean;
   };
 };
 
 type WorkerHealthResponse = {
-  status: 'ok' | 'degraded';
+  status: "ok" | "degraded";
 };
 
 type AuthStatusResponse = {
@@ -43,7 +43,7 @@ type Notebook = {
 
 type ProviderConfig = {
   provider_name: string;
-  validation_status: 'unknown' | 'valid' | 'invalid';
+  validation_status: "unknown" | "valid" | "invalid";
   validated_at: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -151,7 +151,7 @@ type ProviderFormState = {
 };
 
 type SourceFormState = {
-  sourceType: 'pdf' | 'text' | 'markdown' | 'url';
+  sourceType: "pdf" | "text" | "markdown" | "url";
   title: string;
   sourceUrl: string;
   fallbackText: string;
@@ -187,58 +187,58 @@ type SourceModalProps = {
 };
 
 const tabs: Array<{ id: TabId; label: string; description: string }> = [
-  { id: 'chat', label: 'Chat', description: 'Ask grounded questions' },
-  { id: 'sources', label: 'Sources', description: 'Review notebook inputs' },
-  { id: 'runs', label: 'Runs', description: 'Inspect history and traces' },
-  { id: 'diagnostics', label: 'Diagnostics', description: 'Operator view' },
+  { id: "chat", label: "Chat", description: "Ask grounded questions" },
+  { id: "sources", label: "Sources", description: "Review notebook inputs" },
+  { id: "runs", label: "Runs", description: "Inspect history and traces" },
+  { id: "diagnostics", label: "Diagnostics", description: "Operator view" },
 ];
 
 export function statusLabel(status: string | null | undefined): string {
   switch (status) {
-    case 'valid':
-    case 'succeeded':
-      return 'Healthy';
-    case 'queued':
-      return 'Queued';
-    case 'running':
-      return 'Running';
-    case 'failed':
-      return 'Failed';
-    case 'blocked':
-      return 'Blocked';
-    case 'invalid':
-      return 'Needs attention';
-    case 'untracked':
-      return 'Untracked';
+    case "valid":
+    case "succeeded":
+      return "Healthy";
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Running";
+    case "failed":
+      return "Failed";
+    case "blocked":
+      return "Blocked";
+    case "invalid":
+      return "Needs attention";
+    case "untracked":
+      return "Untracked";
     default:
-      return status ? status.replaceAll('_', ' ') : 'Unknown';
+      return status ? status.replaceAll("_", " ") : "Unknown";
   }
 }
 
 export function chipStatusFromLabel(label: string | null | undefined): RuntimeStatus {
   if (!label) {
-    return 'checking';
+    return "checking";
   }
-  if (label === 'valid' || label === 'succeeded') {
-    return 'healthy';
+  if (label === "valid" || label === "succeeded") {
+    return "healthy";
   }
-  if (label === 'queued' || label === 'running' || label === 'untracked' || label === 'unknown') {
-    return 'checking';
+  if (label === "queued" || label === "running" || label === "untracked" || label === "unknown") {
+    return "checking";
   }
-  return 'degraded';
+  return "degraded";
 }
 
 function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Unable to read file'));
+    reader.onerror = () => reject(new Error("Unable to read file"));
     reader.onload = () => {
       const result = reader.result;
       if (!(result instanceof ArrayBuffer)) {
-        reject(new Error('Unable to read file'));
+        reject(new Error("Unable to read file"));
         return;
       }
-      let binary = '';
+      let binary = "";
       const bytes = new Uint8Array(result);
       for (let index = 0; index < bytes.length; index += 1) {
         binary += String.fromCharCode(bytes[index]);
@@ -320,8 +320,8 @@ function ModalShell({
     return null;
   }
 
-  const titleId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-title`;
-  const descriptionId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-description`;
+  const titleId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-title`;
+  const descriptionId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-description`;
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
@@ -363,15 +363,15 @@ function ProviderModal({
   onSave,
   onTest,
 }: ProviderModalProps) {
-  const [form, setForm] = useState<ProviderFormState>({ apiKey: '' });
+  const [form, setForm] = useState<ProviderFormState>({ apiKey: "" });
 
   useEffect(() => {
     if (open) {
-      setForm({ apiKey: '' });
+      setForm({ apiKey: "" });
     }
   }, [open, providerConfig?.updated_at]);
 
-  const status = providerConfig?.validation_status ?? 'unknown';
+  const status = providerConfig?.validation_status ?? "unknown";
 
   return (
     <ModalShell
@@ -382,8 +382,13 @@ function ProviderModal({
     >
       <div className="modal-section">
         <div className="provider-summary">
-          <StatusChip label={`Gemini: ${statusLabel(status)}`} status={chipStatusFromLabel(status)} />
-          <p className="subtle">{providerConfig?.api_key_present ? 'Saved key present' : 'No key saved yet'}</p>
+          <StatusChip
+            label={`Gemini: ${statusLabel(status)}`}
+            status={chipStatusFromLabel(status)}
+          />
+          <p className="subtle">
+            {providerConfig?.api_key_present ? "Saved key present" : "No key saved yet"}
+          </p>
         </div>
         <form
           className="modal-form"
@@ -405,11 +410,16 @@ function ProviderModal({
           {error && <p className="form-error">{error}</p>}
           {message && <p className="form-success">{message}</p>}
           <div className="modal-actions">
-            <button type="button" className="secondary-action" onClick={() => void onTest()} disabled={testing || busy}>
-              {testing ? 'Testing…' : 'Test saved key'}
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => void onTest()}
+              disabled={testing || busy}
+            >
+              {testing ? "Testing…" : "Test saved key"}
             </button>
             <button type="submit" className="primary-action" disabled={busy}>
-              {busy ? 'Saving…' : 'Save key'}
+              {busy ? "Saving…" : "Save key"}
             </button>
           </div>
         </form>
@@ -418,17 +428,24 @@ function ProviderModal({
   );
 }
 
-function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }: SourceModalProps) {
+function SourceModal({
+  open,
+  defaultNotebookName,
+  busy,
+  error,
+  onClose,
+  onSave,
+}: SourceModalProps) {
   const [form, setForm] = useState<SourceFormState>({
-    sourceType: 'pdf',
-    title: '',
-    sourceUrl: '',
-    fallbackText: '',
-    originalName: '',
-    mimeType: '',
-    contentBase64: '',
+    sourceType: "pdf",
+    title: "",
+    sourceUrl: "",
+    fallbackText: "",
+    originalName: "",
+    mimeType: "",
+    contentBase64: "",
   });
-  const [selectedFileName, setSelectedFileName] = useState<string>('');
+  const [selectedFileName, setSelectedFileName] = useState<string>("");
   const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const fileReadToken = useRef(0);
@@ -436,24 +453,24 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
   useEffect(() => {
     if (open) {
       setForm({
-        sourceType: 'pdf',
-        title: '',
-        sourceUrl: '',
-        fallbackText: '',
-        originalName: '',
-        mimeType: '',
-        contentBase64: '',
+        sourceType: "pdf",
+        title: "",
+        sourceUrl: "",
+        fallbackText: "",
+        originalName: "",
+        mimeType: "",
+        contentBase64: "",
       });
-      setSelectedFileName('');
+      setSelectedFileName("");
       setFileNotice(null);
       setLocalError(null);
       fileReadToken.current += 1;
     }
   }, [open]);
 
-  const isUrl = form.sourceType === 'url';
-  const requiresFile = form.sourceType === 'pdf';
-  const acceptsTextUpload = form.sourceType === 'text' || form.sourceType === 'markdown';
+  const isUrl = form.sourceType === "url";
+  const requiresFile = form.sourceType === "pdf";
+  const acceptsTextUpload = form.sourceType === "text" || form.sourceType === "markdown";
 
   return (
     <ModalShell
@@ -471,14 +488,14 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
           const hasFileUpload = form.contentBase64.length > 0;
           if (isUrl) {
             if (!form.sourceUrl.trim()) {
-              setLocalError('Add a URL before saving.');
+              setLocalError("Add a URL before saving.");
               return;
             }
           } else if (requiresFile && !hasFileUpload && !hasPastedText) {
-            setLocalError('Add a file before saving.');
+            setLocalError("Add a file before saving.");
             return;
           } else if (!hasFileUpload && !hasPastedText) {
-            setLocalError('Paste text or upload a file before saving.');
+            setLocalError("Paste text or upload a file before saving.");
             return;
           }
           await onSave(form);
@@ -491,14 +508,14 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
             onChange={(event) => {
               setForm((current) => ({
                 ...current,
-                sourceType: event.target.value as SourceFormState['sourceType'],
-                sourceUrl: '',
-                fallbackText: '',
-                contentBase64: '',
-                originalName: '',
-                mimeType: '',
+                sourceType: event.target.value as SourceFormState["sourceType"],
+                sourceUrl: "",
+                fallbackText: "",
+                contentBase64: "",
+                originalName: "",
+                mimeType: "",
               }));
-              setSelectedFileName('');
+              setSelectedFileName("");
               setFileNotice(null);
               setLocalError(null);
               fileReadToken.current += 1;
@@ -527,7 +544,9 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
               <span>URL</span>
               <input
                 value={form.sourceUrl}
-                onChange={(event) => setForm((current) => ({ ...current, sourceUrl: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, sourceUrl: event.target.value }))
+                }
                 placeholder="https://example.com/article"
                 required
               />
@@ -537,7 +556,9 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
               <textarea
                 rows={5}
                 value={form.fallbackText}
-                onChange={(event) => setForm((current) => ({ ...current, fallbackText: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, fallbackText: event.target.value }))
+                }
                 placeholder="Paste the extracted text if the URL can’t be fetched cleanly."
               />
             </label>
@@ -545,21 +566,25 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
         ) : (
           <div key="upload-fields">
             <label>
-              <span>{requiresFile ? 'PDF file' : 'Text or markdown file'}</span>
+              <span>{requiresFile ? "PDF file" : "Text or markdown file"}</span>
               <input
                 type="file"
-                accept={requiresFile ? '.pdf,application/pdf' : '.txt,.md,.markdown,text/plain,text/markdown'}
+                accept={
+                  requiresFile
+                    ? ".pdf,application/pdf"
+                    : ".txt,.md,.markdown,text/plain,text/markdown"
+                }
                 onChange={async (event) => {
                   const file = event.target.files?.[0];
                   const readToken = fileReadToken.current + 1;
                   fileReadToken.current = readToken;
                   if (!file) {
-                    setSelectedFileName('');
+                    setSelectedFileName("");
                     setForm((current) => ({
                       ...current,
-                      contentBase64: '',
-                      originalName: '',
-                      mimeType: '',
+                      contentBase64: "",
+                      originalName: "",
+                      mimeType: "",
                     }));
                     return;
                   }
@@ -575,25 +600,27 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
                       contentBase64,
                       originalName: file.name,
                       mimeType: file.type,
-                      sourceUrl: '',
+                      sourceUrl: "",
                     }));
                   } catch {
                     if (fileReadToken.current === readToken) {
-                      setFileNotice('Unable to read the selected file.');
+                      setFileNotice("Unable to read the selected file.");
                     }
                   }
                 }}
                 required={requiresFile}
               />
             </label>
-            <p className="subtle">{selectedFileName || 'No file selected yet'}</p>
+            <p className="subtle">{selectedFileName || "No file selected yet"}</p>
             {acceptsTextUpload && (
               <label>
                 <span>Paste text instead of uploading</span>
                 <textarea
                   rows={6}
                   value={form.fallbackText}
-                  onChange={(event) => setForm((current) => ({ ...current, fallbackText: event.target.value }))}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, fallbackText: event.target.value }))
+                  }
                   placeholder="Optional pasted text fallback"
                 />
               </label>
@@ -609,7 +636,7 @@ function SourceModal({ open, defaultNotebookName, busy, error, onClose, onSave }
             Cancel
           </button>
           <button type="submit" className="primary-action" disabled={busy}>
-            {busy ? 'Saving…' : 'Add source'}
+            {busy ? "Saving…" : "Add source"}
           </button>
         </div>
       </form>
@@ -630,11 +657,11 @@ function AuthScreen({
   busy: boolean;
   error: string | null;
 }) {
-  const isOnboarding = mode === 'onboarding';
+  const isOnboarding = mode === "onboarding";
   const [form, setForm] = useState<AuthFormState>({
-    username: '',
-    password: '',
-    confirmPassword: '',
+    username: "",
+    password: "",
+    confirmPassword: "",
   });
 
   return (
@@ -650,11 +677,11 @@ function AuthScreen({
 
         <div className="auth-copy">
           <p className="eyebrow">{statusLabel}</p>
-          <h2>{isOnboarding ? 'Create the owner account' : 'Sign in to continue'}</h2>
+          <h2>{isOnboarding ? "Create the owner account" : "Sign in to continue"}</h2>
           <p>
             {isOnboarding
-              ? 'This instance is locked to a single local owner account.'
-              : 'Use the owner account created during onboarding to access notebooks and runs.'}
+              ? "This instance is locked to a single local owner account."
+              : "Use the owner account created during onboarding to access notebooks and runs."}
           </p>
         </div>
 
@@ -669,7 +696,9 @@ function AuthScreen({
             <span>Username</span>
             <input
               value={form.username}
-              onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, username: event.target.value }))
+              }
               autoComplete="username"
               required
             />
@@ -679,8 +708,10 @@ function AuthScreen({
             <input
               type="password"
               value={form.password}
-              onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-              autoComplete={isOnboarding ? 'new-password' : 'current-password'}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, password: event.target.value }))
+              }
+              autoComplete={isOnboarding ? "new-password" : "current-password"}
               required
             />
           </label>
@@ -700,7 +731,7 @@ function AuthScreen({
           )}
           {error && <p className="form-error">{error}</p>}
           <button className="primary-action auth-submit" type="submit" disabled={busy}>
-            {busy ? 'Working…' : isOnboarding ? 'Create owner account' : 'Sign in'}
+            {busy ? "Working…" : isOnboarding ? "Create owner account" : "Sign in"}
           </button>
         </form>
       </div>
@@ -709,10 +740,10 @@ function AuthScreen({
 }
 
 function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<void> }) {
-  const [activeTab, setActiveTab] = useState<TabId>('chat');
-  const [apiStatus, setApiStatus] = useState<RuntimeStatus>('checking');
-  const [workerStatus, setWorkerStatus] = useState<RuntimeStatus>('checking');
-  const [databaseStatus, setDatabaseStatus] = useState<RuntimeStatus>('checking');
+  const [activeTab, setActiveTab] = useState<TabId>("chat");
+  const [apiStatus, setApiStatus] = useState<RuntimeStatus>("checking");
+  const [workerStatus, setWorkerStatus] = useState<RuntimeStatus>("checking");
+  const [databaseStatus, setDatabaseStatus] = useState<RuntimeStatus>("checking");
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null);
   const [sources, setSources] = useState<SourceItem[]>([]);
@@ -726,14 +757,14 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [retryingSourceId, setRetryingSourceId] = useState<number | null>(null);
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
-  const [editingSourceTitle, setEditingSourceTitle] = useState('');
-  const [draftQuestion, setDraftQuestion] = useState('');
+  const [editingSourceTitle, setEditingSourceTitle] = useState("");
+  const [draftQuestion, setDraftQuestion] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [selectedRun, setSelectedRun] = useState<RunRecord | null>(null);
-  const [currentQuestion, setCurrentQuestion] = useState('');
-  const [currentAnswerText, setCurrentAnswerText] = useState('');
+  const [currentQuestion, setCurrentQuestion] = useState("");
+  const [currentAnswerText, setCurrentAnswerText] = useState("");
   const [currentRun, setCurrentRun] = useState<RunRecord | null>(null);
   const [questionBusy, setQuestionBusy] = useState(false);
   const [questionError, setQuestionError] = useState<string | null>(null);
@@ -746,15 +777,21 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
-  const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
-  const workerBaseUrl = useMemo(() => import.meta.env.VITE_WORKER_BASE_URL || 'http://localhost:8001', []);
+  const apiBaseUrl = useMemo(
+    () => import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
+    [],
+  );
+  const workerBaseUrl = useMemo(
+    () => import.meta.env.VITE_WORKER_BASE_URL || "http://localhost:8001",
+    [],
+  );
 
-  const providerReady = providerConfig?.validation_status === 'valid';
+  const providerReady = providerConfig?.validation_status === "valid";
 
   async function refreshProvider() {
-    const response = await fetch(`${apiBaseUrl}/provider/config`, { credentials: 'include' });
+    const response = await fetch(`${apiBaseUrl}/provider/config`, { credentials: "include" });
     if (!response.ok) {
-      throw new Error('Unable to load provider config');
+      throw new Error("Unable to load provider config");
     }
     const data = (await response.json()) as ProviderConfig;
     setProviderConfig(data);
@@ -763,33 +800,33 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   async function refreshDiagnostics() {
     setDiagnosticsLoading(true);
     try {
-      const response = await fetch(`${apiBaseUrl}/diagnostics`, { credentials: 'include' });
+      const response = await fetch(`${apiBaseUrl}/diagnostics`, { credentials: "include" });
       if (!response.ok) {
-        throw new Error('Unable to load diagnostics');
+        throw new Error("Unable to load diagnostics");
       }
       const data = (await response.json()) as DiagnosticsResponse;
       setDiagnostics(data);
       setDiagnosticsError(null);
     } catch (error_) {
-      setDiagnosticsError(error_ instanceof Error ? error_.message : 'Unable to load diagnostics');
+      setDiagnosticsError(error_ instanceof Error ? error_.message : "Unable to load diagnostics");
     } finally {
       setDiagnosticsLoading(false);
     }
   }
 
   async function refreshSources() {
-    const response = await fetch(`${apiBaseUrl}/sources`, { credentials: 'include' });
+    const response = await fetch(`${apiBaseUrl}/sources`, { credentials: "include" });
     if (!response.ok) {
-      throw new Error('Unable to load sources');
+      throw new Error("Unable to load sources");
     }
     const data = (await response.json()) as SourceItem[];
     setSources(data);
   }
 
   async function refreshRuns(selectedRunOverride: number | null = selectedRunId) {
-    const response = await fetch(`${apiBaseUrl}/runs`, { credentials: 'include' });
+    const response = await fetch(`${apiBaseUrl}/runs`, { credentials: "include" });
     if (!response.ok) {
-      throw new Error('Unable to load runs');
+      throw new Error("Unable to load runs");
     }
     const data = (await response.json()) as RunRecord[];
     setRuns(data);
@@ -802,9 +839,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   }
 
   async function refreshRun(runId: number) {
-    const response = await fetch(`${apiBaseUrl}/runs/${runId}`, { credentials: 'include' });
+    const response = await fetch(`${apiBaseUrl}/runs/${runId}`, { credentials: "include" });
     if (!response.ok) {
-      throw new Error('Unable to load run');
+      throw new Error("Unable to load run");
     }
     const data = (await response.json()) as RunRecord;
     setCurrentRun((current) => (current?.id === runId ? data : current));
@@ -818,15 +855,17 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
     setSourceDetailLoading(true);
     setSourceDetailError(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/sources/${sourceId}`, { credentials: 'include' });
+      const response = await fetch(`${apiBaseUrl}/sources/${sourceId}`, { credentials: "include" });
       if (!response.ok) {
         const data = (await response.json()) as { detail?: string };
-        throw new Error(data.detail || 'Unable to load source detail');
+        throw new Error(data.detail || "Unable to load source detail");
       }
       const data = (await response.json()) as SourceDetail;
       setSourceDetail(data);
     } catch (error_) {
-      setSourceDetailError(error_ instanceof Error ? error_.message : 'Unable to load source detail');
+      setSourceDetailError(
+        error_ instanceof Error ? error_.message : "Unable to load source detail",
+      );
     } finally {
       setSourceDetailLoading(false);
     }
@@ -835,14 +874,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   async function streamRun(runId: number) {
     setStreamingRunId(runId);
     try {
-      const response = await fetch(`${apiBaseUrl}/runs/${runId}/stream`, { credentials: 'include' });
+      const response = await fetch(`${apiBaseUrl}/runs/${runId}/stream`, {
+        credentials: "include",
+      });
       if (!response.ok || !response.body) {
-        const data = response.ok ? null : ((await response.json().catch(() => ({}))) as { detail?: string });
-        throw new Error(data?.detail || 'Unable to stream run answer');
+        const data = response.ok
+          ? null
+          : ((await response.json().catch(() => ({}))) as { detail?: string });
+        throw new Error(data?.detail || "Unable to stream run answer");
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let answerText = '';
+      let answerText = "";
       while (true) {
         const { value, done } = await reader.read();
         if (done) {
@@ -856,7 +899,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
       await refreshRun(runId);
       await refreshRuns();
     } catch (error_) {
-      setQuestionError(error_ instanceof Error ? error_.message : 'Unable to stream answer');
+      setQuestionError(error_ instanceof Error ? error_.message : "Unable to stream answer");
       await refreshRun(runId).catch(() => undefined);
       await refreshRuns().catch(() => undefined);
     } finally {
@@ -867,34 +910,34 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   async function submitQuestion(question: string, rerunOfRunId: number | null = null) {
     const trimmed = question.trim();
     if (!trimmed) {
-      setQuestionError('Ask a question before running the notebook.');
+      setQuestionError("Ask a question before running the notebook.");
       return;
     }
     setQuestionBusy(true);
     setQuestionError(null);
     setCurrentQuestion(trimmed);
-    setCurrentAnswerText('');
+    setCurrentAnswerText("");
     try {
       const response = await fetch(`${apiBaseUrl}/runs`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: trimmed, rerun_of_run_id: rerunOfRunId }),
       });
       const data = (await response.json()) as RunRecord & { detail?: string };
       if (!response.ok) {
-        throw new Error(data.detail || 'Unable to create run');
+        throw new Error(data.detail || "Unable to create run");
       }
       setCurrentRun(data);
       setSelectedRunId(data.id);
       setSelectedRun(data);
-      setDraftQuestion('');
+      setDraftQuestion("");
       await refreshRuns(data.id);
-      if (data.status === 'queued') {
+      if (data.status === "queued") {
         await streamRun(data.id);
       }
     } catch (error_) {
-      setQuestionError(error_ instanceof Error ? error_.message : 'Unable to create run');
+      setQuestionError(error_ instanceof Error ? error_.message : "Unable to create run");
     } finally {
       setQuestionBusy(false);
     }
@@ -905,28 +948,28 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
     async function loadStatus() {
       try {
-        const apiResponse = await fetch(`${apiBaseUrl}/health`, { credentials: 'include' });
+        const apiResponse = await fetch(`${apiBaseUrl}/health`, { credentials: "include" });
         const apiData = (await apiResponse.json()) as HealthResponse;
         if (!cancelled) {
-          setApiStatus(apiData.status === 'ok' ? 'healthy' : 'degraded');
-          setDatabaseStatus(apiData.database?.status === 'ok' ? 'healthy' : 'degraded');
+          setApiStatus(apiData.status === "ok" ? "healthy" : "degraded");
+          setDatabaseStatus(apiData.database?.status === "ok" ? "healthy" : "degraded");
         }
       } catch {
         if (!cancelled) {
-          setApiStatus('offline');
-          setDatabaseStatus('offline');
+          setApiStatus("offline");
+          setDatabaseStatus("offline");
         }
       }
 
       try {
-        const workerResponse = await fetch(`${workerBaseUrl}/health`, { credentials: 'include' });
+        const workerResponse = await fetch(`${workerBaseUrl}/health`, { credentials: "include" });
         const workerData = (await workerResponse.json()) as WorkerHealthResponse;
         if (!cancelled) {
-          setWorkerStatus(workerData.status === 'ok' ? 'healthy' : 'degraded');
+          setWorkerStatus(workerData.status === "ok" ? "healthy" : "degraded");
         }
       } catch {
         if (!cancelled) {
-          setWorkerStatus('offline');
+          setWorkerStatus("offline");
         }
       }
     }
@@ -945,7 +988,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
     async function loadNotebook() {
       try {
-        const response = await fetch(`${apiBaseUrl}/notebooks/default`, { credentials: 'include' });
+        const response = await fetch(`${apiBaseUrl}/notebooks/default`, { credentials: "include" });
         if (!response.ok) {
           return;
         }
@@ -965,7 +1008,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
         await Promise.all([loadNotebook(), refreshProvider(), refreshSources(), refreshRuns()]);
       } catch (error_) {
         if (!cancelled) {
-          setLoadError(error_ instanceof Error ? error_.message : 'Unable to load notebook data');
+          setLoadError(error_ instanceof Error ? error_.message : "Unable to load notebook data");
         }
       }
     }
@@ -977,7 +1020,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   }, [apiBaseUrl]);
 
   useEffect(() => {
-    if (activeTab !== 'sources') {
+    if (activeTab !== "sources") {
       return undefined;
     }
 
@@ -985,7 +1028,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
     async function pollSources() {
       try {
-        const response = await fetch(`${apiBaseUrl}/sources`, { credentials: 'include' });
+        const response = await fetch(`${apiBaseUrl}/sources`, { credentials: "include" });
         if (!response.ok) {
           return;
         }
@@ -1010,7 +1053,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   }, [activeTab, apiBaseUrl]);
 
   useEffect(() => {
-    if (activeTab !== 'runs') {
+    if (activeTab !== "runs") {
       return undefined;
     }
 
@@ -1018,7 +1061,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
     async function pollRuns() {
       try {
-        const response = await fetch(`${apiBaseUrl}/runs`, { credentials: 'include' });
+        const response = await fetch(`${apiBaseUrl}/runs`, { credentials: "include" });
         if (!response.ok) {
           return;
         }
@@ -1049,7 +1092,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
   }, [activeTab, apiBaseUrl, selectedRunId]);
 
   useEffect(() => {
-    if (activeTab !== 'diagnostics') {
+    if (activeTab !== "diagnostics") {
       return undefined;
     }
 
@@ -1096,8 +1139,8 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           <div className="panel-label">Notebook</div>
           <div className="notebook-card active" aria-label="Active notebook">
             <div>
-              <strong>{notebook?.name ?? 'Default notebook'}</strong>
-              <span>{notebook ? 'Auto-created on first run' : 'Loading notebook…'}</span>
+              <strong>{notebook?.name ?? "Default notebook"}</strong>
+              <span>{notebook ? "Auto-created on first run" : "Loading notebook…"}</span>
             </div>
             <span className="badge">Active</span>
           </div>
@@ -1105,11 +1148,19 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
         <div className="sidebar-panel">
           <div className="panel-label">Provider</div>
-          <button type="button" className="sidebar-link provider-link" onClick={() => setProviderModalOpen(true)}>
+          <button
+            type="button"
+            className="sidebar-link provider-link"
+            onClick={() => setProviderModalOpen(true)}
+          >
             <span>Gemini</span>
-            <span>{statusLabel(providerConfig?.validation_status ?? 'unknown')}</span>
+            <span>{statusLabel(providerConfig?.validation_status ?? "unknown")}</span>
           </button>
-          <button type="button" className="secondary-action" onClick={() => setProviderModalOpen(true)}>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => setProviderModalOpen(true)}
+          >
             Configure provider
           </button>
         </div>
@@ -1118,7 +1169,11 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           <div className="panel-label">Workspace</div>
           <ul className="sidebar-links">
             <li>
-              <button type="button" className="sidebar-link" onClick={() => setActiveTab('diagnostics')}>
+              <button
+                type="button"
+                className="sidebar-link"
+                onClick={() => setActiveTab("diagnostics")}
+              >
                 <span>Diagnostics</span>
                 <span>Provider + jobs</span>
               </button>
@@ -1160,13 +1215,17 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
         <header className="workspace-header">
           <div>
             <p className="eyebrow">Notebook workspace</p>
-            <h2>{notebook?.name ?? 'Default notebook'}</h2>
+            <h2>{notebook?.name ?? "Default notebook"}</h2>
             <p className="subtle">
-              {notebook ? 'Ask grounded questions over your sources.' : 'Loading notebook…'}
+              {notebook ? "Ask grounded questions over your sources." : "Loading notebook…"}
             </p>
           </div>
           <div className="header-actions">
-            <button type="button" className="secondary-action" onClick={() => setProviderModalOpen(true)}>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => setProviderModalOpen(true)}
+            >
               Provider settings
             </button>
             <button
@@ -1190,7 +1249,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             <button
               key={tab.id}
               type="button"
-              className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
+              className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
               onClick={() => setActiveTab(tab.id)}
             >
               <span>{tab.label}</span>
@@ -1200,7 +1259,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
         </section>
 
         <section className="workspace-content">
-          {activeTab === 'chat' && (
+          {activeTab === "chat" && (
             <div className="panel split-panel">
               <div className="conversation-area">
                 <div className="empty-state">
@@ -1214,7 +1273,8 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 {questionError && <div className="notice-banner">{questionError}</div>}
                 {!providerReady && !questionError && (
                   <div className="notice-banner">
-                    Gemini is not validated yet. Questions will be recorded as blocked until a key is saved.
+                    Gemini is not validated yet. Questions will be recorded as blocked until a key
+                    is saved.
                   </div>
                 )}
 
@@ -1227,20 +1287,25 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                     <div className="message message-assistant">
                       <span className="message-label">OakResearch</span>
                       <p>
-                        {currentRun?.answer?.citations && (currentAnswerText || currentRun?.answer?.answer_text)
+                        {currentRun?.answer?.citations &&
+                        (currentAnswerText || currentRun?.answer?.answer_text)
                           ? renderAnswerWithCitations(
                               currentAnswerText || currentRun.answer.answer_text,
                               currentRun.answer.citations,
                               openSourceDetail,
                             )
                           : currentAnswerText ||
-                            (currentRun?.status === 'blocked'
-                              ? currentRun.blocked_reason || 'The notebook sources did not support an answer.'
+                            (currentRun?.status === "blocked"
+                              ? currentRun.blocked_reason ||
+                                "The notebook sources did not support an answer."
                               : streamingRunId !== null
-                                ? 'Generating answer…'
-                                : currentRun?.answer?.answer_text || 'Run the question to see the answer here.')}
+                                ? "Generating answer…"
+                                : currentRun?.answer?.answer_text ||
+                                  "Run the question to see the answer here.")}
                       </p>
-                      {currentRun?.answer?.trace_summary && <p className="subtle">{currentRun.answer.trace_summary}</p>}
+                      {currentRun?.answer?.trace_summary && (
+                        <p className="subtle">{currentRun.answer.trace_summary}</p>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -1248,8 +1313,8 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                     <span className="message-label">OakResearch</span>
                     <p>
                       {providerReady
-                        ? 'Ask a grounded question to start a streamed answer run.'
-                        : 'Ask a question to create a blocked attempt until Gemini is validated.'}
+                        ? "Ask a grounded question to start a streamed answer run."
+                        : "Ask a question to create a blocked attempt until Gemini is validated."}
                     </p>
                   </div>
                 )}
@@ -1260,7 +1325,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 onSubmit={async (event) => {
                   event.preventDefault();
                   const formData = new FormData(event.currentTarget);
-                  await submitQuestion(String(formData.get('question') ?? ''));
+                  await submitQuestion(String(formData.get("question") ?? ""));
                 }}
               >
                 <label htmlFor="question" className="panel-label">
@@ -1276,23 +1341,35 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   disabled={questionBusy || streamingRunId !== null}
                 />
                 <div className="composer-actions">
-                  <button type="button" className="secondary-action" disabled={questionBusy} onClick={() => setDraftQuestion('')}>
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    disabled={questionBusy}
+                    onClick={() => setDraftQuestion("")}
+                  >
                     Clear
                   </button>
-                  <button type="submit" className="primary-action" disabled={questionBusy || streamingRunId !== null}>
-                    {questionBusy || streamingRunId !== null ? 'Running…' : 'Run query'}
+                  <button
+                    type="submit"
+                    className="primary-action"
+                    disabled={questionBusy || streamingRunId !== null}
+                  >
+                    {questionBusy || streamingRunId !== null ? "Running…" : "Run query"}
                   </button>
                 </div>
               </form>
             </div>
           )}
 
-          {activeTab === 'sources' && (
+          {activeTab === "sources" && (
             <div className="panel sources-panel">
               <div className="sources-header">
                 <div>
                   <h3>Sources</h3>
-                  <p>Flat list view for notebook inputs. Source additions are item-scoped and restart-safe.</p>
+                  <p>
+                    Flat list view for notebook inputs. Source additions are item-scoped and
+                    restart-safe.
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -1315,7 +1392,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 ) : (
                   sources.map((source) => {
                     const isEditing = editingSourceId === source.id;
-                    const sourceStatus = source.status ?? source.job_status ?? 'untracked';
+                    const sourceStatus = source.status ?? source.job_status ?? "untracked";
                     return (
                       <div className="source-row" key={source.id}>
                         <div className="source-meta">
@@ -1332,10 +1409,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                             <span className="badge">{source.source_type}</span>
                             <span className="badge source-status">{statusLabel(sourceStatus)}</span>
                           </div>
-                          <p>{source.metadata.original_name ? `File: ${String(source.metadata.original_name)}` : source.payload_uri}</p>
+                          <p>
+                            {source.metadata.original_name
+                              ? `File: ${String(source.metadata.original_name)}`
+                              : source.payload_uri}
+                          </p>
                           <p className="subtle">{source.created_at}</p>
-                          {source.job_step_label && <p className="subtle">Step: {source.job_step_label}</p>}
-                          {source.job_error_message && <p className="form-error">{source.job_error_message}</p>}
+                          {source.job_step_label && (
+                            <p className="subtle">Step: {source.job_step_label}</p>
+                          )}
+                          {source.job_error_message && (
+                            <p className="form-error">{source.job_error_message}</p>
+                          )}
                         </div>
                         <div className="source-actions">
                           {isEditing ? (
@@ -1345,33 +1430,46 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                                 className="secondary-action"
                                 onClick={async () => {
                                   try {
-                                    const response = await fetch(`${apiBaseUrl}/sources/${source.id}`, {
-                                      method: 'PATCH',
-                                      credentials: 'include',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ title: editingSourceTitle }),
-                                    });
+                                    const response = await fetch(
+                                      `${apiBaseUrl}/sources/${source.id}`,
+                                      {
+                                        method: "PATCH",
+                                        credentials: "include",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ title: editingSourceTitle }),
+                                      },
+                                    );
                                     if (!response.ok) {
                                       const data = (await response.json()) as { detail?: string };
-                                      throw new Error(data.detail || 'Unable to update source title');
+                                      throw new Error(
+                                        data.detail || "Unable to update source title",
+                                      );
                                     }
                                     setEditingSourceId(null);
                                     setSourceError(null);
                                     await refreshSources();
                                   } catch (saveError) {
-                                    setSourceError(saveError instanceof Error ? saveError.message : 'Unable to update source title');
+                                    setSourceError(
+                                      saveError instanceof Error
+                                        ? saveError.message
+                                        : "Unable to update source title",
+                                    );
                                   }
                                 }}
                               >
                                 Save
                               </button>
-                              <button type="button" className="secondary-action" onClick={() => setEditingSourceId(null)}>
+                              <button
+                                type="button"
+                                className="secondary-action"
+                                onClick={() => setEditingSourceId(null)}
+                              >
                                 Cancel
                               </button>
                             </>
                           ) : (
                             <>
-                              {sourceStatus === 'failed' && (
+                              {sourceStatus === "failed" && (
                                 <button
                                   type="button"
                                   className="secondary-action"
@@ -1379,24 +1477,31 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                                   onClick={async () => {
                                     try {
                                       setRetryingSourceId(source.id);
-                                      const response = await fetch(`${apiBaseUrl}/sources/${source.id}/retry`, {
-                                        method: 'POST',
-                                        credentials: 'include',
-                                      });
+                                      const response = await fetch(
+                                        `${apiBaseUrl}/sources/${source.id}/retry`,
+                                        {
+                                          method: "POST",
+                                          credentials: "include",
+                                        },
+                                      );
                                       if (!response.ok) {
                                         const data = (await response.json()) as { detail?: string };
-                                        throw new Error(data.detail || 'Unable to retry source');
+                                        throw new Error(data.detail || "Unable to retry source");
                                       }
                                       setSourceError(null);
                                       await refreshSources();
                                     } catch (retryError) {
-                                      setSourceError(retryError instanceof Error ? retryError.message : 'Unable to retry source');
+                                      setSourceError(
+                                        retryError instanceof Error
+                                          ? retryError.message
+                                          : "Unable to retry source",
+                                      );
                                     } finally {
                                       setRetryingSourceId(null);
                                     }
                                   }}
                                 >
-                                  {retryingSourceId === source.id ? 'Retrying…' : 'Retry ingest'}
+                                  {retryingSourceId === source.id ? "Retrying…" : "Retry ingest"}
                                 </button>
                               )}
                               <button
@@ -1420,14 +1525,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             </div>
           )}
 
-          {activeTab === 'runs' && (
+          {activeTab === "runs" && (
             <div className="panel runs-panel">
               <div className="runs-header">
                 <div>
                   <h3>Runs</h3>
                   <p>Every query attempt appears here with status, citations, and trace details.</p>
                 </div>
-                <button type="button" className="secondary-action" onClick={() => void refreshRuns()}>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void refreshRuns()}
+                >
                   Refresh
                 </button>
               </div>
@@ -1446,7 +1555,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                         <button
                           key={run.id}
                           type="button"
-                          className={`run-row ${isSelected ? 'active' : ''}`}
+                          className={`run-row ${isSelected ? "active" : ""}`}
                           onClick={() => {
                             setSelectedRunId(run.id);
                             setSelectedRun(run);
@@ -1457,8 +1566,10 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                             <strong>{run.question}</strong>
                             <span className="badge">{statusLabel(run.status)}</span>
                           </div>
-                          <p>{run.step_label || 'queued-for-answering'}</p>
-                          {run.rerun_of_run_id && <p className="subtle">Rerun of #{run.rerun_of_run_id}</p>}
+                          <p>{run.step_label || "queued-for-answering"}</p>
+                          {run.rerun_of_run_id && (
+                            <p className="subtle">Rerun of #{run.rerun_of_run_id}</p>
+                          )}
                           {run.answer?.answer_text ? (
                             <p className="subtle">{run.answer.answer_text.slice(0, 120)}</p>
                           ) : run.blocked_reason ? (
@@ -1477,7 +1588,9 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                         <div>
                           <p className="eyebrow">Run detail</p>
                           <h3>{selectedRun.question}</h3>
-                          <p className="subtle">{selectedRun.step_label || 'queued-for-answering'}</p>
+                          <p className="subtle">
+                            {selectedRun.step_label || "queued-for-answering"}
+                          </p>
                           {selectedRun.rerun_of_run_id && (
                             <p className="subtle">Rerun of #{selectedRun.rerun_of_run_id}</p>
                           )}
@@ -1497,14 +1610,22 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                         </div>
                       </div>
 
-                      {selectedRun.blocked_reason && <p className="form-error">{selectedRun.blocked_reason}</p>}
-                      {selectedRun.answer?.trace_summary && <p className="subtle">{selectedRun.answer.trace_summary}</p>}
+                      {selectedRun.blocked_reason && (
+                        <p className="form-error">{selectedRun.blocked_reason}</p>
+                      )}
+                      {selectedRun.answer?.trace_summary && (
+                        <p className="subtle">{selectedRun.answer.trace_summary}</p>
+                      )}
                       <div className="answer-card">
                         <span className="panel-label">Answer</span>
                         <p>
                           {selectedRun.answer
-                            ? renderAnswerWithCitations(selectedRun.answer.answer_text, selectedRun.answer.citations, openSourceDetail)
-                            : 'No answer stored for this run yet.'}
+                            ? renderAnswerWithCitations(
+                                selectedRun.answer.answer_text,
+                                selectedRun.answer.citations,
+                                openSourceDetail,
+                              )
+                            : "No answer stored for this run yet."}
                         </p>
                       </div>
                       <div className="citation-list">
@@ -1536,14 +1657,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             </div>
           )}
 
-          {activeTab === 'diagnostics' && (
+          {activeTab === "diagnostics" && (
             <div className="panel diagnostics-panel">
               <div className="runs-header">
                 <div>
                   <h3>Diagnostics</h3>
                   <p>Owner-only operator view for provider validation and queue health.</p>
                 </div>
-                <button type="button" className="secondary-action" onClick={() => void refreshDiagnostics()}>
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => void refreshDiagnostics()}
+                >
                   Refresh
                 </button>
               </div>
@@ -1558,15 +1683,19 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   ) : diagnostics ? (
                     <>
                       <div className="status-chip">
-                        <span className={`status-dot ${chipStatusFromLabel(diagnostics.provider_test_result.status)}`} />
+                        <span
+                          className={`status-dot ${chipStatusFromLabel(diagnostics.provider_test_result.status)}`}
+                        />
                         <span>{statusLabel(diagnostics.provider_test_result.status)}</span>
                       </div>
                       <p className="subtle">{diagnostics.provider_test_result.message}</p>
                       <p className="subtle">
-                        {diagnostics.provider_config.api_key_present ? 'API key present' : 'No API key saved'}
+                        {diagnostics.provider_config.api_key_present
+                          ? "API key present"
+                          : "No API key saved"}
                       </p>
                       <p className="subtle">
-                        Validated: {diagnostics.provider_test_result.validated_at || 'never'}
+                        Validated: {diagnostics.provider_test_result.validated_at || "never"}
                       </p>
                     </>
                   ) : (
@@ -1588,13 +1717,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   <span className="panel-label">Recent jobs</span>
                   {diagnostics?.recent_jobs?.length ? (
                     diagnostics.recent_jobs.map((job) => (
-                      <article key={`${job.job_kind}-${job.job_id}`} className="diagnostic-job-card">
+                      <article
+                        key={`${job.job_kind}-${job.job_id}`}
+                        className="diagnostic-job-card"
+                      >
                         <div className="run-row-head">
                           <strong>{job.label}</strong>
                           <span className="badge">{statusLabel(job.status)}</span>
                         </div>
-                        <p>{job.job_kind} · {job.entity_type} #{job.entity_id ?? '—'}</p>
-                        <p className="subtle">{job.step_label || 'queued'}</p>
+                        <p>
+                          {job.job_kind} · {job.entity_type} #{job.entity_id ?? "—"}
+                        </p>
+                        <p className="subtle">{job.step_label || "queued"}</p>
                         <p className="subtle">Created: {job.created_at}</p>
                         {job.error_message && <p className="form-error">{job.error_message}</p>}
                       </article>
@@ -1608,13 +1742,18 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                   <span className="panel-label">Recent failures</span>
                   {diagnostics?.recent_failures?.length ? (
                     diagnostics.recent_failures.map((job) => (
-                      <article key={`failure-${job.job_kind}-${job.job_id}`} className="diagnostic-job-card">
+                      <article
+                        key={`failure-${job.job_kind}-${job.job_id}`}
+                        className="diagnostic-job-card"
+                      >
                         <div className="run-row-head">
                           <strong>{job.label}</strong>
                           <span className="badge">{statusLabel(job.status)}</span>
                         </div>
-                        <p>{job.job_kind} · {job.entity_type} #{job.entity_id ?? '—'}</p>
-                        <p className="subtle">{job.step_label || 'failed'}</p>
+                        <p>
+                          {job.job_kind} · {job.entity_type} #{job.entity_id ?? "—"}
+                        </p>
+                        <p className="subtle">{job.step_label || "failed"}</p>
                         <p className="subtle">Created: {job.created_at}</p>
                         {job.error_message && <p className="form-error">{job.error_message}</p>}
                       </article>
@@ -1631,7 +1770,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
       <ModalShell
         open={sourceDetailOpen}
-        title={sourceDetail?.title || 'Source detail'}
+        title={sourceDetail?.title || "Source detail"}
         description="Inspect the cited source and its stored chunks."
         onClose={() => {
           setSourceDetailOpen(false);
@@ -1647,13 +1786,23 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           ) : sourceDetail ? (
             <>
               <div className="provider-summary">
-                <StatusChip label={statusLabel(sourceDetail.status)} status={chipStatusFromLabel(sourceDetail.status)} />
+                <StatusChip
+                  label={statusLabel(sourceDetail.status)}
+                  status={chipStatusFromLabel(sourceDetail.status)}
+                />
                 <p className="subtle">
-                  {sourceDetail.source_type} · {sourceDetail.metadata.original_name ? `File: ${String(sourceDetail.metadata.original_name)}` : sourceDetail.payload_uri}
+                  {sourceDetail.source_type} ·{" "}
+                  {sourceDetail.metadata.original_name
+                    ? `File: ${String(sourceDetail.metadata.original_name)}`
+                    : sourceDetail.payload_uri}
                 </p>
               </div>
-              {sourceDetail.job_step_label && <p className="subtle">Step: {sourceDetail.job_step_label}</p>}
-              {sourceDetail.job_error_message && <p className="form-error">{sourceDetail.job_error_message}</p>}
+              {sourceDetail.job_step_label && (
+                <p className="subtle">Step: {sourceDetail.job_step_label}</p>
+              )}
+              {sourceDetail.job_error_message && (
+                <p className="form-error">{sourceDetail.job_error_message}</p>
+              )}
               <div className="chunk-list">
                 {sourceDetail.chunks.length === 0 ? (
                   <div className="placeholder-card">
@@ -1694,23 +1843,31 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           setProviderMessage(null);
           try {
             const response = await fetch(`${apiBaseUrl}/provider/config`, {
-              method: 'PUT',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ api_key: apiKey }),
             });
             const data = (await response.json()) as ProviderConfig & { detail?: string };
             if (!response.ok) {
-              throw new Error(data.detail || data.validation_message || 'Unable to save provider config');
+              throw new Error(
+                data.detail || data.validation_message || "Unable to save provider config",
+              );
             }
             setProviderConfig(data);
-            setProviderMessage(data.validation_status === 'valid' ? 'Gemini key validated successfully.' : data.validation_message || 'Key saved but validation failed.');
-            if (data.validation_status === 'valid') {
+            setProviderMessage(
+              data.validation_status === "valid"
+                ? "Gemini key validated successfully."
+                : data.validation_message || "Key saved but validation failed.",
+            );
+            if (data.validation_status === "valid") {
               setProviderModalOpen(false);
             }
             await refreshProvider();
           } catch (saveError) {
-            setProviderError(saveError instanceof Error ? saveError.message : 'Unable to save provider config');
+            setProviderError(
+              saveError instanceof Error ? saveError.message : "Unable to save provider config",
+            );
           } finally {
             setProviderBusy(false);
           }
@@ -1721,18 +1878,22 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
           setProviderMessage(null);
           try {
             const response = await fetch(`${apiBaseUrl}/provider/config/test`, {
-              method: 'POST',
-              credentials: 'include',
+              method: "POST",
+              credentials: "include",
             });
             const data = (await response.json()) as ProviderConfig & { detail?: string };
             if (!response.ok) {
-              throw new Error(data.detail || data.validation_message || 'Unable to test provider config');
+              throw new Error(
+                data.detail || data.validation_message || "Unable to test provider config",
+              );
             }
             setProviderConfig(data);
-            setProviderMessage(data.validation_message || 'Saved key tested successfully.');
+            setProviderMessage(data.validation_message || "Saved key tested successfully.");
             await refreshProvider();
           } catch (testError) {
-            setProviderError(testError instanceof Error ? testError.message : 'Unable to test provider config');
+            setProviderError(
+              testError instanceof Error ? testError.message : "Unable to test provider config",
+            );
           } finally {
             setProviderTesting(false);
           }
@@ -1741,7 +1902,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 
       <SourceModal
         open={sourceModalOpen}
-        defaultNotebookName={notebook?.name ?? 'Default notebook'}
+        defaultNotebookName={notebook?.name ?? "Default notebook"}
         busy={sourceBusy}
         error={sourceError}
         onClose={() => {
@@ -1761,7 +1922,7 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
                 notebook_name: notebook?.name,
               },
             };
-            if (form.sourceType === 'url') {
+            if (form.sourceType === "url") {
               payload.source_url = form.sourceUrl;
               if (form.fallbackText.trim()) {
                 payload.content_text = form.fallbackText.trim();
@@ -1773,20 +1934,20 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
             }
 
             const response = await fetch(`${apiBaseUrl}/sources`, {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
             });
             const data = (await response.json()) as { detail?: string };
             if (!response.ok) {
-              throw new Error(data.detail || 'Unable to add source');
+              throw new Error(data.detail || "Unable to add source");
             }
             setSourceModalOpen(false);
             await refreshSources();
-            setActiveTab('sources');
+            setActiveTab("sources");
           } catch (saveError) {
-            setSourceError(saveError instanceof Error ? saveError.message : 'Unable to add source');
+            setSourceError(saveError instanceof Error ? saveError.message : "Unable to add source");
           } finally {
             setSourceBusy(false);
           }
@@ -1797,8 +1958,11 @@ function Shell({ user, onLogout }: { user: AuthUser; onLogout: () => Promise<voi
 }
 
 export function App() {
-  const apiBaseUrl = useMemo(() => import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000', []);
-  const [mode, setMode] = useState<AuthMode>('loading');
+  const apiBaseUrl = useMemo(
+    () => import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
+    [],
+  );
+  const [mode, setMode] = useState<AuthMode>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1808,7 +1972,7 @@ export function App() {
 
     async function loadAuth() {
       try {
-        const response = await fetch(`${apiBaseUrl}/auth/status`, { credentials: 'include' });
+        const response = await fetch(`${apiBaseUrl}/auth/status`, { credentials: "include" });
         const data = (await response.json()) as AuthStatusResponse;
         if (cancelled) {
           return;
@@ -1816,15 +1980,15 @@ export function App() {
 
         setUser(data.user);
         if (data.authenticated && data.user) {
-          setMode('authenticated');
+          setMode("authenticated");
         } else if (data.onboarding_required) {
-          setMode('onboarding');
+          setMode("onboarding");
         } else {
-          setMode('login');
+          setMode("login");
         }
       } catch {
         if (!cancelled) {
-          setMode('login');
+          setMode("login");
         }
       }
     }
@@ -1835,30 +1999,30 @@ export function App() {
     };
   }, [apiBaseUrl]);
 
-  async function submitAuth(path: '/auth/onboarding' | '/auth/login', form: AuthFormState) {
+  async function submitAuth(path: "/auth/onboarding" | "/auth/login", form: AuthFormState) {
     setBusy(true);
     setError(null);
     try {
       const response = await fetch(`${apiBaseUrl}${path}`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username: form.username,
           password: form.password,
-          ...(path === '/auth/onboarding' ? { confirm_password: form.confirmPassword } : {}),
+          ...(path === "/auth/onboarding" ? { confirm_password: form.confirmPassword } : {}),
         }),
       });
       const data = (await response.json()) as { user?: AuthUser; detail?: string };
       if (!response.ok) {
-        throw new Error(data.detail || 'Authentication failed');
+        throw new Error(data.detail || "Authentication failed");
       }
       if (data.user) {
         setUser(data.user);
       }
-      setMode('authenticated');
+      setMode("authenticated");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Authentication failed');
+      setError(submitError instanceof Error ? submitError.message : "Authentication failed");
     } finally {
       setBusy(false);
     }
@@ -1869,23 +2033,23 @@ export function App() {
     setError(null);
     try {
       const response = await fetch(`${apiBaseUrl}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
+        method: "POST",
+        credentials: "include",
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { detail?: string };
-        throw new Error(data.detail || 'Logout failed');
+        throw new Error(data.detail || "Logout failed");
       }
       setUser(null);
-      setMode('login');
+      setMode("login");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Logout failed');
+      setError(submitError instanceof Error ? submitError.message : "Logout failed");
     } finally {
       setBusy(false);
     }
   }
 
-  if (mode === 'loading') {
+  if (mode === "loading") {
     return (
       <div className="auth-screen">
         <div className="auth-card">
@@ -1906,12 +2070,14 @@ export function App() {
     );
   }
 
-  if (mode !== 'authenticated' || user === null) {
+  if (mode !== "authenticated" || user === null) {
     return (
       <AuthScreen
         mode={mode}
-        statusLabel={mode === 'onboarding' ? 'First run setup' : 'Owner access'}
-        onSubmit={async (form) => submitAuth(mode === 'onboarding' ? '/auth/onboarding' : '/auth/login', form)}
+        statusLabel={mode === "onboarding" ? "First run setup" : "Owner access"}
+        onSubmit={async (form) =>
+          submitAuth(mode === "onboarding" ? "/auth/onboarding" : "/auth/login", form)
+        }
         busy={busy}
         error={error}
       />
@@ -1921,8 +2087,8 @@ export function App() {
   return <Shell user={user} onLogout={logout} />;
 }
 
-if (import.meta.env.MODE !== 'test') {
-  createRoot(document.getElementById('root')!).render(
+if (import.meta.env.MODE !== "test") {
+  createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <App />
     </StrictMode>,

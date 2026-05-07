@@ -4,16 +4,16 @@ import base64
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
 from oakresearch.db import apply_migrations, bootstrap_instance
-from oakresearch.ingestion import IngestionError, process_next_source_job_once, _validate_public_url
+from oakresearch.ingestion import IngestionError, _validate_public_url, process_next_source_job_once
 from oakresearch.main import app
 
 
@@ -31,8 +31,8 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema_name},
         )
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
@@ -45,8 +45,8 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         db_module.DEFAULT_STORAGE_DIR = self.original_storage_dir
         self.tempdir.cleanup()
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def create_authenticated_client(self) -> AsyncClient:
@@ -84,7 +84,9 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
             json={
                 "source_type": "text",
                 "title": "Uploaded text source",
-                "content_base64": base64.b64encode(b"uploaded paragraph\n\nmore uploaded text").decode("ascii"),
+                "content_base64": base64.b64encode(
+                    b"uploaded paragraph\n\nmore uploaded text"
+                ).decode("ascii"),
                 "original_name": "notes.txt",
                 "mime_type": "text/plain",
             },
@@ -109,7 +111,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(source_by_id[uploaded["id"]]["metadata"]["original_name"], "notes.txt")
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             text_chunks = await conn.fetch(
                 "SELECT chunk_index, chunk_text FROM source_chunks WHERE source_id = $1 ORDER BY chunk_index ASC",
                 queued["id"],
@@ -139,7 +141,12 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         source = response.json()
         self.assertEqual(source["status"], "queued")
 
-        with patch("oakresearch.ingestion._fetch_url_text", side_effect=IngestionError("Unable to fetch URL content from https://example.invalid/missing")):
+        with patch(
+            "oakresearch.ingestion._fetch_url_text",
+            side_effect=IngestionError(
+                "Unable to fetch URL content from https://example.invalid/missing"
+            ),
+        ):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "failed")
@@ -202,7 +209,7 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sources[0]["job_status"], "succeeded")
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             jobs = await conn.fetch(
                 "SELECT status, step_label FROM source_jobs WHERE source_id = $1 ORDER BY id ASC",
                 sources[0]["id"],
@@ -220,7 +227,10 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         public_addrinfo = [(None, None, None, None, ("93.184.216.34", 443))]
 
         for addrinfo in (private_addrinfo, link_local_v6_addrinfo, mixed_addrinfo):
-            with self.subTest(addrinfo=addrinfo), patch("oakresearch.ingestion.socket.getaddrinfo", return_value=addrinfo):
+            with (
+                self.subTest(addrinfo=addrinfo),
+                patch("oakresearch.ingestion.socket.getaddrinfo", return_value=addrinfo),
+            ):
                 with self.assertRaisesRegex(IngestionError, "non-public"):
                     _validate_public_url("https://example.com/article")
 
@@ -246,14 +256,19 @@ class Phase7IngestionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         source = response.json()
 
-        with patch("oakresearch.ingestion._fetch_url_text", side_effect=AssertionError("network should not be fetched")):
+        with patch(
+            "oakresearch.ingestion._fetch_url_text",
+            side_effect=AssertionError("network should not be fetched"),
+        ):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
         self.assertEqual(processed["status"], "succeeded")
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            chunk_text = await conn.fetchval("SELECT chunk_text FROM source_chunks WHERE source_id = $1", source["id"])
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            chunk_text = await conn.fetchval(
+                "SELECT chunk_text FROM source_chunks WHERE source_id = $1", source["id"]
+            )
         self.assertIn("Stored fallback text", chunk_text)
 
 

@@ -8,8 +8,8 @@ from typing import Any
 import asyncpg
 from fastapi import FastAPI, Request
 
-from .db import create_pool, get_bootstrap_state, initialize_database
 from .answering import process_next_run_job_once
+from .db import create_pool, get_bootstrap_state, initialize_database
 from .ingestion import process_next_source_job_once
 from .settings import get_settings
 

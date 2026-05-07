@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
@@ -31,8 +31,8 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema_name},
         )
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
@@ -45,8 +45,8 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         db_module.DEFAULT_STORAGE_DIR = self.original_storage_dir
         self.tempdir.cleanup()
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def create_authenticated_client(self) -> AsyncClient:
@@ -89,7 +89,9 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertEqual(response.status_code, 200)
-        with patch("oakresearch.ingestion.process_source_payload", side_effect=IngestionError("boom")):
+        with patch(
+            "oakresearch.ingestion.process_source_payload", side_effect=IngestionError("boom")
+        ):
             processed_source = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed_source)
         self.assertEqual(processed_source["status"], "failed")
@@ -111,8 +113,12 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200)
         failed_run_id = response.json()["id"]
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=RuntimeError("Worker crashed")
+        with (
+            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch(
+                "oakresearch.answering.stream_gemini_text",
+                side_effect=RuntimeError("Worker crashed"),
+            ),
         ):
             processed_run = await process_next_run_job_once(self.pool)
         self.assertIsNotNone(processed_run)
@@ -136,9 +142,13 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("What is the capital of Mars?", failure_labels)
         self.assertIn("What stack does OakResearch use when the worker crashes?", failure_labels)
 
-        failed_run = next(item for item in diagnostics["recent_failures"] if item["job_id"] == failed_run_id)
+        failed_run = next(
+            item for item in diagnostics["recent_failures"] if item["job_id"] == failed_run_id
+        )
         self.assertEqual(failed_run["status"], "failed")
-        blocked_run = next(item for item in diagnostics["recent_failures"] if item["job_id"] == blocked_run_id)
+        blocked_run = next(
+            item for item in diagnostics["recent_failures"] if item["job_id"] == blocked_run_id
+        )
         self.assertEqual(blocked_run["status"], "blocked")
 
     async def test_diagnostics_downgrades_valid_config_when_key_is_unusable(self) -> None:
@@ -146,7 +156,7 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(client.aclose)
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await conn.execute(
                 """
                 UPDATE provider_configs
@@ -160,7 +170,9 @@ class Phase10DiagnosticsTest(unittest.IsolatedAsyncioTestCase):
         diagnostics = response.json()
         self.assertEqual(diagnostics["provider_config"]["validation_status"], "valid")
         self.assertEqual(diagnostics["provider_test_result"]["status"], "invalid")
-        self.assertEqual(diagnostics["provider_test_result"]["message"], "Saved key needs attention")
+        self.assertEqual(
+            diagnostics["provider_test_result"]["message"], "Saved key needs attention"
+        )
 
 
 if __name__ == "__main__":

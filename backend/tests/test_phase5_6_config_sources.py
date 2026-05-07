@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import unittest
-from datetime import UTC, datetime
 import uuid
+from datetime import UTC, datetime
 
 import asyncpg
 
@@ -28,20 +28,20 @@ class Phase5And6Test(unittest.IsolatedAsyncioTestCase):
         self.schema_name = f"test_{uuid.uuid4().hex}"
         self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=2)
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
     async def asyncTearDown(self) -> None:
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def test_provider_config_round_trip(self) -> None:
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             config = await get_provider_config(conn)
             self.assertIsNotNone(config)
             self.assertEqual(config["validation_status"], "unknown")
@@ -57,8 +57,10 @@ class Phase5And6Test(unittest.IsolatedAsyncioTestCase):
 
     async def test_source_creation_queues_job_and_allows_title_edits(self) -> None:
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            notebook_id = await conn.fetchval("SELECT id FROM notebooks WHERE is_default = TRUE LIMIT 1")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            notebook_id = await conn.fetchval(
+                "SELECT id FROM notebooks WHERE is_default = TRUE LIMIT 1"
+            )
             source = await create_source(
                 conn,
                 {

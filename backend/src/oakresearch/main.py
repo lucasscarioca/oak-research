@@ -10,8 +10,8 @@ from typing import Any
 
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .db import (
@@ -22,20 +22,20 @@ from .db import (
     create_run,
     create_session,
     create_source,
-    get_source_detail,
-    list_run_events,
-    get_provider_config,
     get_authenticated_user,
     get_bootstrap_state,
     get_provider_api_key,
+    get_provider_config,
     get_run,
     get_source,
+    get_source_detail,
     initialize_database,
     list_recent_failures,
     list_recent_jobs,
-    queue_source_job,
+    list_run_events,
     list_runs,
     list_sources,
+    queue_source_job,
     revoke_session,
     store_source_payload,
     update_provider_config,
@@ -230,7 +230,9 @@ async def auth_status(request: Request) -> dict[str, Any]:
 
 
 @app.post("/auth/onboarding")
-async def onboarding(request: Request, response: Response, payload: OnboardingCreate) -> dict[str, Any]:
+async def onboarding(
+    request: Request, response: Response, payload: OnboardingCreate
+) -> dict[str, Any]:
     state = await fetch_bootstrap_state(request)
     if state.get("onboarding_complete", False):
         raise HTTPException(status_code=409, detail="Onboarding already completed")
@@ -239,7 +241,9 @@ async def onboarding(request: Request, response: Response, payload: OnboardingCr
 
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
-        result = await complete_onboarding(conn, username=payload.username, password=payload.password)
+        result = await complete_onboarding(
+            conn, username=payload.username, password=payload.password
+        )
         token = await create_session(
             conn,
             result["owner"]["id"],
@@ -305,7 +309,9 @@ async def logout(request: Request, response: Response) -> dict[str, Any]:
 
 
 @app.get("/provider/config")
-async def provider_config(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+async def provider_config(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> dict[str, Any]:
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         config = await get_provider_config(conn)
@@ -328,7 +334,9 @@ async def save_provider_config(
     if not payload.api_key.strip():
         raise HTTPException(status_code=400, detail="API key is required")
 
-    validation_ok, validation_error = await asyncio.to_thread(validate_gemini_api_key, payload.api_key)
+    validation_ok, validation_error = await asyncio.to_thread(
+        validate_gemini_api_key, payload.api_key
+    )
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         config = await update_provider_config(
@@ -379,7 +387,9 @@ async def test_provider_config(
 
 
 @app.get("/bootstrap/status")
-async def bootstrap_status(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+async def bootstrap_status(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> dict[str, Any]:
     state = await fetch_bootstrap_state(request)
     state["owner"] = serialize_user(state.get("owner"))
     state["provider_config"] = serialize_provider_config(state.get("provider_config"))
@@ -387,7 +397,9 @@ async def bootstrap_status(request: Request, _: dict[str, Any] = Depends(require
 
 
 @app.get("/diagnostics")
-async def diagnostics(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+async def diagnostics(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> dict[str, Any]:
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         provider_config = await get_provider_config(conn)
@@ -428,7 +440,9 @@ async def diagnostics(request: Request, _: dict[str, Any] = Depends(require_auth
 
 
 @app.get("/owner")
-async def owner(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+async def owner(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> dict[str, Any]:
     state = await fetch_bootstrap_state(request)
     owner = serialize_user(state["owner"])
     if owner is None:
@@ -437,7 +451,9 @@ async def owner(request: Request, _: dict[str, Any] = Depends(require_authentica
 
 
 @app.get("/notebooks/default")
-async def default_notebook(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> dict[str, Any]:
+async def default_notebook(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> dict[str, Any]:
     state = await fetch_bootstrap_state(request)
     if state["default_notebook"] is None:
         raise HTTPException(status_code=404, detail="Default notebook not initialized")
@@ -445,7 +461,9 @@ async def default_notebook(request: Request, _: dict[str, Any] = Depends(require
 
 
 @app.get("/sources")
-async def get_sources(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> list[dict[str, Any]]:
+async def get_sources(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> list[dict[str, Any]]:
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         return await list_sources(conn)
@@ -473,7 +491,9 @@ async def create_source_record(
 ) -> dict[str, Any]:
     pool: asyncpg.Pool = request.app.state.pool
     state = await fetch_bootstrap_state(request)
-    notebook_id = payload.notebook_id or (state["default_notebook"]["id"] if state["default_notebook"] else None)
+    notebook_id = payload.notebook_id or (
+        state["default_notebook"]["id"] if state["default_notebook"] else None
+    )
     if notebook_id is None:
         raise HTTPException(status_code=409, detail="Default notebook is not available")
 
@@ -554,7 +574,9 @@ async def retry_source_record(
 
 
 @app.get("/runs")
-async def get_runs(request: Request, _: dict[str, Any] = Depends(require_authentication)) -> list[dict[str, Any]]:
+async def get_runs(
+    request: Request, _: dict[str, Any] = Depends(require_authentication)
+) -> list[dict[str, Any]]:
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         return await list_runs(conn)
@@ -620,7 +642,9 @@ async def create_run_record(
 ) -> dict[str, Any]:
     pool: asyncpg.Pool = request.app.state.pool
     state = await fetch_bootstrap_state(request)
-    notebook_id = payload.notebook_id or (state["default_notebook"]["id"] if state["default_notebook"] else None)
+    notebook_id = payload.notebook_id or (
+        state["default_notebook"]["id"] if state["default_notebook"] else None
+    )
     if notebook_id is None:
         raise HTTPException(status_code=409, detail="Default notebook is not available")
 
@@ -636,7 +660,9 @@ async def create_run_record(
             if parent_run is None:
                 raise HTTPException(status_code=404, detail="Parent run not found")
             if int(parent_run["notebook_id"]) != int(notebook_id):
-                raise HTTPException(status_code=400, detail="Parent run belongs to a different notebook")
+                raise HTTPException(
+                    status_code=400, detail="Parent run belongs to a different notebook"
+                )
 
         provider_config = await get_provider_config(conn)
         provider_api_key = await get_provider_api_key(conn)

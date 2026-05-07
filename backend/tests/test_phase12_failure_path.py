@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
@@ -31,8 +31,8 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema_name},
         )
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
@@ -45,8 +45,8 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         db_module.DEFAULT_STORAGE_DIR = self.original_storage_dir
         self.tempdir.cleanup()
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def create_authenticated_client(self) -> AsyncClient:
@@ -82,7 +82,9 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
 
         with patch(
             "oakresearch.ingestion._fetch_url_text",
-            side_effect=IngestionError("Unable to fetch URL content from https://example.invalid/missing"),
+            side_effect=IngestionError(
+                "Unable to fetch URL content from https://example.invalid/missing"
+            ),
         ):
             processed = await process_next_source_job_once(self.pool)
         self.assertIsNotNone(processed)
@@ -98,7 +100,9 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         diagnostics_response = await client.get("/diagnostics")
         self.assertEqual(diagnostics_response.status_code, 200)
         diagnostics = diagnostics_response.json()
-        self.assertIn("Broken URL source", {item["label"] for item in diagnostics["recent_failures"]})
+        self.assertIn(
+            "Broken URL source", {item["label"] for item in diagnostics["recent_failures"]}
+        )
         self.assertIn(broken_source_id, [item["entity_id"] for item in diagnostics["recent_jobs"]])
 
         usable_source_response = await client.post(
@@ -119,8 +123,9 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
             yield "OakResearch stays usable after a broken URL fails"
             yield " [1]."
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=fake_stream
+        with (
+            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             run_response = await client.post(
                 "/runs",
@@ -153,7 +158,7 @@ class Phase12FailurePathTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(retry_detail["chunks"]), 1)
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             jobs = await conn.fetch(
                 "SELECT status FROM source_jobs WHERE source_id = $1 ORDER BY id ASC",
                 broken_source_id,

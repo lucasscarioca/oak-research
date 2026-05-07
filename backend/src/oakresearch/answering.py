@@ -5,8 +5,9 @@ import json
 import logging
 import math
 import re
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any
 
 import asyncpg
 import httpx
@@ -16,18 +17,15 @@ from .db import (
     claim_next_run_job,
     complete_run,
     ensure_source_chunk_embeddings,
-    get_bootstrap_state,
     get_provider_api_key,
     get_run,
     list_source_chunks_for_notebook,
     mark_run_blocked,
     mark_run_failed,
-    mark_run_running,
-    mark_run_succeeded,
     mark_run_job_failed,
     mark_run_job_running,
     mark_run_job_succeeded,
-    normalize_json_value,
+    mark_run_running,
 )
 from .settings import get_settings
 
@@ -152,7 +150,9 @@ async def stream_gemini_text(
                         yield text
 
 
-async def _lexical_rank(question: str, chunks: list[dict[str, Any]], *, limit: int) -> list[RetrievedChunk]:
+async def _lexical_rank(
+    question: str, chunks: list[dict[str, Any]], *, limit: int
+) -> list[RetrievedChunk]:
     question_tokens = _tokenize(question)
     ranked: list[RetrievedChunk] = []
     for chunk in chunks:
@@ -192,9 +192,13 @@ async def retrieve_relevant_chunks(
         return []
 
     try:
-        question_embedding = await embed_text(provider_api_key, question, model=settings.gemini_embedding_model)
+        question_embedding = await embed_text(
+            provider_api_key, question, model=settings.gemini_embedding_model
+        )
     except Exception as exc:
-        logger.warning("Falling back to lexical retrieval after question embedding failure: %s", exc)
+        logger.warning(
+            "Falling back to lexical retrieval after question embedding failure: %s", exc
+        )
         return await _lexical_rank(question, chunks, limit=limit)
 
     try:
@@ -275,7 +279,7 @@ def _build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
         "You are OakResearch, a grounded research notebook assistant. "
         "Answer using only the notebook context below. "
         "If the context is insufficient, say exactly: "
-        f"\"{DEFAULT_REFUSAL_MESSAGE}\". "
+        f'"{DEFAULT_REFUSAL_MESSAGE}". '
         "When you use a fact from a context item, cite it inline with a bracketed number like [1] or [2]. "
         "Do not invent sources or claim certainty without support.\n\n"
         f"Question: {question.strip()}\n\n"
@@ -324,7 +328,9 @@ async def generate_grounded_answer(
         }
 
     prompt = _build_prompt(question, chunks)
-    text = await _emit_tokens(conn, run_id, stream_gemini_text(provider_api_key, prompt=prompt), on_token=on_token)
+    text = await _emit_tokens(
+        conn, run_id, stream_gemini_text(provider_api_key, prompt=prompt), on_token=on_token
+    )
     answer_text = text.strip() or DEFAULT_REFUSAL_MESSAGE
 
     citation_matches = [int(match) for match in re.findall(r"\[(\d+)\]", answer_text)]
@@ -389,11 +395,17 @@ async def process_next_run_job_once(pool: asyncpg.Pool) -> dict[str, Any] | None
                     run_id=int(run["id"]),
                     blocked_reason="Gemini provider key is not configured",
                 )
-                await mark_run_job_failed(conn, int(job["id"]), "Gemini provider key is not configured")
+                await mark_run_job_failed(
+                    conn, int(job["id"]), "Gemini provider key is not configured"
+                )
                 return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
 
-            await mark_run_running(conn, run_id=int(run["id"]), step_label="retrieving-relevant-chunks")
-            await mark_run_job_running(conn, int(job["id"]), step_label="retrieving-relevant-chunks")
+            await mark_run_running(
+                conn, run_id=int(run["id"]), step_label="retrieving-relevant-chunks"
+            )
+            await mark_run_job_running(
+                conn, int(job["id"]), step_label="retrieving-relevant-chunks"
+            )
             chunks = await retrieve_relevant_chunks(
                 conn,
                 notebook_id=int(run["notebook_id"]),
@@ -403,7 +415,9 @@ async def process_next_run_job_once(pool: asyncpg.Pool) -> dict[str, Any] | None
 
             if _grounding_strength(chunks) < 0.15:
                 refusal = DEFAULT_REFUSAL_MESSAGE
-                await append_run_event(conn, int(run["id"]), event_type="status", event_text="blocked")
+                await append_run_event(
+                    conn, int(run["id"]), event_type="status", event_text="blocked"
+                )
                 await complete_run(
                     conn,
                     run_id=int(run["id"]),
@@ -415,7 +429,9 @@ async def process_next_run_job_once(pool: asyncpg.Pool) -> dict[str, Any] | None
                     model=settings.gemini_model,
                     citations=[],
                 )
-                await mark_run_job_succeeded(conn, int(job["id"]), step_label="grounding-insufficient")
+                await mark_run_job_succeeded(
+                    conn, int(job["id"]), step_label="grounding-insufficient"
+                )
                 return {"job_id": job["id"], "run_id": run["id"], "status": "blocked"}
 
             await mark_run_running(conn, run_id=int(run["id"]), step_label="generating-answer")
@@ -437,7 +453,9 @@ async def process_next_run_job_once(pool: asyncpg.Pool) -> dict[str, Any] | None
                 run_id=int(run["id"]),
                 status="succeeded" if not answer["refused"] else "blocked",
                 step_label="answer-complete" if not answer["refused"] else "grounding-insufficient",
-                blocked_reason=None if not answer["refused"] else "Insufficient grounding in notebook sources",
+                blocked_reason=None
+                if not answer["refused"]
+                else "Insufficient grounding in notebook sources",
                 answer_text=answer["answer_text"],
                 trace_summary=answer["trace_summary"],
                 model=settings.gemini_model,

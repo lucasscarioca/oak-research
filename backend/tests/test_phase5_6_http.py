@@ -4,16 +4,16 @@ import json
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
 
 from oakresearch import db as db_module
-from oakresearch.main import app
 from oakresearch.db import apply_migrations, bootstrap_instance
+from oakresearch.main import app
 
 
 class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
@@ -30,8 +30,8 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema_name},
         )
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
@@ -44,8 +44,8 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         db_module.DEFAULT_STORAGE_DIR = self.original_storage_dir
         self.tempdir.cleanup()
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def create_authenticated_client(self) -> AsyncClient:
@@ -80,13 +80,18 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         response = await client.put("/provider/config", json={"api_key": "   "})
         self.assertEqual(response.status_code, 400)
 
-        with patch("oakresearch.main.validate_gemini_api_key", return_value=(False, "API key not valid. Please pass a valid API key.")):
+        with patch(
+            "oakresearch.main.validate_gemini_api_key",
+            return_value=(False, "API key not valid. Please pass a valid API key."),
+        ):
             response = await client.put("/provider/config", json={"api_key": "invalid-key"})
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertEqual(body["validation_status"], "invalid")
         self.assertTrue(body["api_key_present"])
-        self.assertEqual(body["validation_message"], "API key not valid. Please pass a valid API key.")
+        self.assertEqual(
+            body["validation_message"], "API key not valid. Please pass a valid API key."
+        )
         self.assertNotIn("api_key_ciphertext", body)
         self.assertNotIn("invalid-key", json.dumps(body))
 
@@ -131,7 +136,9 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text_source["job_status"], "queued")
         self.assertEqual(text_source["metadata"]["input_kind"], "text")
         self.assertEqual(text_source["metadata"]["origin"], "manual")
-        self.assertEqual(Path(text_source["payload_uri"]).read_text(encoding="utf-8"), "hello world")
+        self.assertEqual(
+            Path(text_source["payload_uri"]).read_text(encoding="utf-8"), "hello world"
+        )
 
         response = await client.post(
             "/sources",
@@ -165,7 +172,10 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(url_source["metadata"]["input_kind"], "url")
         self.assertTrue(url_source["metadata"]["has_fallback_text"])
         self.assertEqual(url_source["metadata"]["source_url"], "https://example.com/article")
-        self.assertEqual(Path(url_source["payload_uri"]).read_text(encoding="utf-8"), "Extracted text for the article")
+        self.assertEqual(
+            Path(url_source["payload_uri"]).read_text(encoding="utf-8"),
+            "Extracted text for the article",
+        )
 
         response = await client.get("/sources")
         self.assertEqual(response.status_code, 200)
@@ -175,7 +185,9 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sources[0]["metadata"]["input_kind"], "url")
         self.assertEqual(sources[1]["metadata"]["input_kind"], "upload")
 
-        response = await client.patch(f"/sources/{url_source['id']}", json={"title": "Renamed source"})
+        response = await client.patch(
+            f"/sources/{url_source['id']}", json={"title": "Renamed source"}
+        )
         self.assertEqual(response.status_code, 200)
         patched = response.json()
         self.assertEqual(patched["title"], "Renamed source")
@@ -185,7 +197,9 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         response = await client.patch("/sources/999999", json={"title": "Missing source"})
         self.assertEqual(response.status_code, 404)
 
-    async def test_source_creation_rejects_missing_content_malformed_base64_and_missing_default_notebook(self) -> None:
+    async def test_source_creation_rejects_missing_content_malformed_base64_and_missing_default_notebook(
+        self,
+    ) -> None:
         client = await self.create_authenticated_client()
         self.addAsyncCleanup(client.aclose)
 
@@ -202,8 +216,10 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 400)
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            notebook_id = await conn.fetchval("SELECT id FROM notebooks WHERE is_default = TRUE LIMIT 1")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            notebook_id = await conn.fetchval(
+                "SELECT id FROM notebooks WHERE is_default = TRUE LIMIT 1"
+            )
             await conn.execute("UPDATE notebooks SET is_default = FALSE WHERE id = $1", notebook_id)
 
         response = await client.post(
@@ -234,7 +250,7 @@ class Phase5And6HttpTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(client.aclose)
 
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await conn.execute(
                 """
                 UPDATE provider_configs

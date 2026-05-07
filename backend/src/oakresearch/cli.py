@@ -3,9 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 
-from .db import create_pool, initialize_database, get_bootstrap_state
+from .db import create_pool, get_bootstrap_state, initialize_database
 
 
 async def run_migrate() -> int:

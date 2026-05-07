@@ -46,7 +46,9 @@ def _normalize_whitespace(text: str) -> str:
 
 
 def _html_to_text(document: str) -> str:
-    without_scripts = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", document, flags=re.IGNORECASE | re.DOTALL)
+    without_scripts = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", " ", document, flags=re.IGNORECASE | re.DOTALL
+    )
     stripped = re.sub(r"<[^>]+>", " ", without_scripts)
     return _normalize_whitespace(html.unescape(stripped))
 
@@ -91,15 +93,13 @@ def _validate_public_url(url: str) -> None:
         return
 
     try:
-        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        infos = socket.getaddrinfo(
+            host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM
+        )
     except socket.gaierror as exc:
         raise IngestionError(f"Unable to resolve URL host {host}") from exc
 
-    resolved_addresses = {
-        info[4][0]
-        for info in infos
-        if info and info[4] and info[4][0]
-    }
+    resolved_addresses = {info[4][0] for info in infos if info and info[4] and info[4][0]}
     if not resolved_addresses:
         raise IngestionError(f"Unable to resolve URL host {host}")
 
@@ -115,7 +115,11 @@ def _validate_public_url(url: str) -> None:
 async def _fetch_url_text(url: str) -> str:
     _validate_public_url(url)
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_REQUEST_TIMEOUT, follow_redirects=False, headers={"User-Agent": USER_AGENT}) as client:
+        async with httpx.AsyncClient(
+            timeout=DEFAULT_REQUEST_TIMEOUT,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
             response = await client.get(url)
             response.raise_for_status()
     except Exception as exc:
@@ -159,7 +163,9 @@ async def extract_source_text(source: dict[str, Any]) -> tuple[str, str]:
     return _read_text_file(payload_path), "parsed-text"
 
 
-def chunk_text(text: str, *, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[str]:
+def chunk_text(
+    text: str, *, chunk_size: int = DEFAULT_CHUNK_SIZE, overlap: int = DEFAULT_CHUNK_OVERLAP
+) -> list[str]:
     normalized = re.sub(r"\r\n?", "\n", text).strip()
     if not normalized:
         return []
@@ -239,8 +245,18 @@ async def process_next_source_job_once(pool: asyncpg.Pool) -> dict[str, Any] | N
         async with pool.acquire() as conn:
             await update_source_job_step(conn, job["id"], step_label)
             await complete_source_job(conn, job_id=job["id"], source_id=source["id"], chunks=chunks)
-        return {"job_id": job["id"], "source_id": source["id"], "status": "succeeded", "step_label": step_label}
+        return {
+            "job_id": job["id"],
+            "source_id": source["id"],
+            "status": "succeeded",
+            "step_label": step_label,
+        }
     except Exception as exc:
         async with pool.acquire() as conn:
             await fail_source_job(conn, job_id=job["id"], error_message=str(exc))
-        return {"job_id": job["id"], "source_id": source["id"], "status": "failed", "error": str(exc)}
+        return {
+            "job_id": job["id"],
+            "source_id": source["id"],
+            "status": "failed",
+            "error": str(exc),
+        }

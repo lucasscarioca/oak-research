@@ -4,9 +4,9 @@ import asyncio
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-import uuid
 
 import asyncpg
 from httpx import ASGITransport, AsyncClient
@@ -32,8 +32,8 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
             server_settings={"search_path": self.schema_name},
         )
         async with self.pool.acquire() as conn:
-            await conn.execute(f'CREATE SCHEMA {self.schema_name}')
-            await conn.execute(f'SET search_path TO {self.schema_name}')
+            await conn.execute(f"CREATE SCHEMA {self.schema_name}")
+            await conn.execute(f"SET search_path TO {self.schema_name}")
             await apply_migrations(conn)
             await bootstrap_instance(conn)
 
@@ -46,8 +46,8 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         db_module.DEFAULT_STORAGE_DIR = self.original_storage_dir
         self.tempdir.cleanup()
         async with self.pool.acquire() as conn:
-            await conn.execute(f'SET search_path TO {self.schema_name}')
-            await conn.execute(f'DROP SCHEMA IF EXISTS {self.schema_name} CASCADE')
+            await conn.execute(f"SET search_path TO {self.schema_name}")
+            await conn.execute(f"DROP SCHEMA IF EXISTS {self.schema_name} CASCADE")
         await self.pool.close()
 
     async def create_authenticated_client(self) -> AsyncClient:
@@ -102,10 +102,13 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
             yield "OakResearch uses FastAPI and Postgres"
             yield " [1]."
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=fake_stream
+        with (
+            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
         ):
-            run_response = await client.post("/runs", json={"question": "What stack does OakResearch use?"})
+            run_response = await client.post(
+                "/runs", json={"question": "What stack does OakResearch use?"}
+            )
             self.assertEqual(run_response.status_code, 200)
             run_id = run_response.json()["id"]
 
@@ -153,8 +156,9 @@ class Phase11HappyPathTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rerun_response.status_code, 200)
         rerun_id = rerun_response.json()["id"]
 
-        with patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")), patch(
-            "oakresearch.answering.stream_gemini_text", side_effect=fake_stream
+        with (
+            patch("oakresearch.answering.embed_text", side_effect=AnsweringError("no embeddings")),
+            patch("oakresearch.answering.stream_gemini_text", side_effect=fake_stream),
         ):
             rerun_job = await process_next_run_job_once(self.pool)
             self.assertIsNotNone(rerun_job)

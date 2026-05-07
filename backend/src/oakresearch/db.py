@@ -8,7 +8,7 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -139,7 +139,9 @@ def normalize_json_value(value: Any) -> Any:
     return value
 
 
-def store_source_payload(*, source_type: str, data: bytes, original_name: str | None = None) -> dict[str, str]:
+def store_source_payload(
+    *, source_type: str, data: bytes, original_name: str | None = None
+) -> dict[str, str]:
     payload_sha256 = hashlib.sha256(data).hexdigest()
     suffix_map = {
         "pdf": ".pdf",
@@ -361,9 +363,7 @@ async def get_bootstrap_state(conn: asyncpg.Connection) -> dict[str, Any]:
     latest_migration = await conn.fetchval(
         "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
     )
-    owner = await conn.fetchrow(
-        "SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT 1"
-    )
+    owner = await conn.fetchrow("SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT 1")
     notebook = None
     if owner is not None:
         notebook = await conn.fetchrow(
@@ -386,7 +386,9 @@ async def get_bootstrap_state(conn: asyncpg.Connection) -> dict[str, Any]:
         "default_notebook": dict(notebook) if notebook is not None else None,
         "provider_config": dict(provider_config) if provider_config is not None else None,
         "instance": dict(instance) if instance is not None else None,
-        "onboarding_complete": bool(instance["onboarding_complete"]) if instance is not None else False,
+        "onboarding_complete": bool(instance["onboarding_complete"])
+        if instance is not None
+        else False,
     }
 
 
@@ -447,9 +449,7 @@ async def complete_onboarding(
     password: str,
 ) -> dict[str, Any]:
     async with conn.transaction():
-        owner = await conn.fetchrow(
-            "SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT 1"
-        )
+        owner = await conn.fetchrow("SELECT * FROM users ORDER BY created_at ASC, id ASC LIMIT 1")
         if owner is None:
             owner = await conn.fetchrow(
                 """
@@ -751,7 +751,9 @@ async def get_source(conn: asyncpg.Connection, source_id: int) -> dict[str, Any]
     return data
 
 
-async def list_source_chunks_for_notebook(conn: asyncpg.Connection, notebook_id: int) -> list[dict[str, Any]]:
+async def list_source_chunks_for_notebook(
+    conn: asyncpg.Connection, notebook_id: int
+) -> list[dict[str, Any]]:
     rows = await conn.fetch(
         """
         SELECT
@@ -993,7 +995,9 @@ async def mark_run_failed(conn: asyncpg.Connection, *, run_id: int, error_messag
     )
 
 
-async def mark_run_succeeded(conn: asyncpg.Connection, *, run_id: int, step_label: str = 'answer-complete') -> None:
+async def mark_run_succeeded(
+    conn: asyncpg.Connection, *, run_id: int, step_label: str = "answer-complete"
+) -> None:
     await conn.execute(
         """
         UPDATE runs
@@ -1023,7 +1027,7 @@ async def complete_run(
     citations: list[dict[str, Any]],
 ) -> None:
     async with conn.transaction():
-        if status == 'blocked':
+        if status == "blocked":
             await conn.execute(
                 """
                 UPDATE runs
@@ -1089,7 +1093,9 @@ async def complete_run(
             )
 
 
-async def update_source_title(conn: asyncpg.Connection, source_id: int, title: str) -> dict[str, Any] | None:
+async def update_source_title(
+    conn: asyncpg.Connection, source_id: int, title: str
+) -> dict[str, Any] | None:
     row = await conn.fetchrow(
         """
         UPDATE sources
@@ -1158,7 +1164,9 @@ async def list_recent_jobs(conn: asyncpg.Connection, *, limit: int = 10) -> list
     return [dict(row) for row in rows]
 
 
-async def list_recent_failures(conn: asyncpg.Connection, *, limit: int = 10) -> list[dict[str, Any]]:
+async def list_recent_failures(
+    conn: asyncpg.Connection, *, limit: int = 10
+) -> list[dict[str, Any]]:
     rows = await conn.fetch(
         """
         SELECT *
